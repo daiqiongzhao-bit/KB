@@ -14,6 +14,7 @@ const LOG_FILE = path.join(HOME, '.openclaw/logs/gateway.log');
 // ════════════════ 日志工具 ════════════════
 const DASHBOARD_LOG_DIR = path.join(__dirname, 'logs');
 const DASHBOARD_LOG_FILE = path.join(DASHBOARD_LOG_DIR, 'dashboard.log');
+const DASHBOARD_CACHE_DIR = path.join(__dirname, '.cache');
 
 // 日志配置（先设置默认值，后面从配置文件读取）
 let LOGGING_CONFIG = {
@@ -36,6 +37,10 @@ const LOG_LEVEL_PRIORITY = {
 // 确保日志目录存在
 if (!fs.existsSync(DASHBOARD_LOG_DIR)) {
   fs.mkdirSync(DASHBOARD_LOG_DIR, { recursive: true });
+}
+// 确保缓存目录存在
+if (!fs.existsSync(DASHBOARD_CACHE_DIR)) {
+  fs.mkdirSync(DASHBOARD_CACHE_DIR, { recursive: true });
 }
 
 // 日志级别颜色
@@ -130,10 +135,34 @@ logger.info('系统', `工作目录: ${__dirname}`);
 const CACHE = {
   commits: new Map(),
   skills: new Map(),
+  installedSkills: new Map(),
   issues: null,
   issuesTime: 0,
+  issuesInflight: null,
+  commitsInflight: new Map(),
+  skillsInflight: new Map(),
 };
 const CACHE_TTL = 30000; // 30秒缓存
+const DISK_CACHE_TTL = 300000; // 5分钟磁盘缓存
+const DISK_REFRESH_INTERVAL = 10000; // 10秒内只刷新一次
+
+function readDiskCache(key) {
+  try {
+    const file = path.join(DASHBOARD_CACHE_DIR, `${key}.json`);
+    if (!fs.existsSync(file)) return null;
+    const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (!data || !data.updatedAt) return null;
+    const ageMs = Date.now() - new Date(data.updatedAt).getTime();
+    return { value: data.value, ageMs };
+  } catch { return null; }
+}
+
+function writeDiskCache(key, value) {
+  try {
+    const file = path.join(DASHBOARD_CACHE_DIR, `${key}.json`);
+    fs.writeFileSync(file, JSON.stringify({ updatedAt: new Date().toISOString(), value }, null, 2), 'utf-8');
+  } catch {}
+}
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 let userConfig = {};
@@ -313,6 +342,34 @@ function getGitHubIssues(limit = 100) {
     logger.debug('GitHub', `Issues 使用缓存`, { age: `${now - CACHE.issuesTime}ms` });
     return CACHE.issues;
   }
+
+  const diskKey = `issues-${limit}`;
+  const diskCached = readDiskCache(diskKey);
+  if (diskCached && diskCached.value !== undefined) {
+    CACHE.issues = diskCached.value;
+    CACHE.issuesTime = now;
+    const shouldRefresh = diskCached.ageMs > DISK_REFRESH_INTERVAL;
+    const isStale = diskCached.ageMs > DISK_CACHE_TTL;
+    if ((shouldRefresh || isStale) && !CACHE.issuesInflight) {
+      CACHE.issuesInflight = true;
+      setImmediate(() => {
+        try { refreshGitHubIssues(limit); } finally { CACHE.issuesInflight = null; }
+      });
+    }
+    return diskCached.value;
+  }
+
+  if (CACHE.issuesInflight) {
+    return CACHE.issues || [];
+  }
+  CACHE.issuesInflight = true;
+  const data = refreshGitHubIssues(limit);
+  CACHE.issuesInflight = null;
+  return data;
+}
+
+function refreshGitHubIssues(limit) {
+  const now = Date.now();
   
   const timer = perf('GitHub', 'getGitHubIssues');
   const q = IS_WIN ? '"."' : "'.'";
@@ -325,6 +382,7 @@ function getGitHubIssues(limit = 100) {
     const data = JSON.parse(raw);
     CACHE.issues = data;
     CACHE.issuesTime = now;
+    writeDiskCache(`issues-${limit}`, data);
     timer.end(`成功获取 ${data.length} 个 Issues`);
     return data;
   } catch (err) {
@@ -354,6 +412,33 @@ function getRepoCommits(repoFullName, limit = 15) {
     logger.debug('GitHub', `Commits 使用缓存 [${repoFullName}]`, { age: `${Date.now() - cached.time}ms` });
     return cached.data;
   }
+
+  const diskKey = `commits-${repoFullName.replace(/[^a-zA-Z0-9._-]/g, '_')}-${limit}`;
+  const diskCached = readDiskCache(diskKey);
+  if (diskCached && diskCached.value !== undefined) {
+    CACHE.commits.set(cacheKey, { data: diskCached.value, time: Date.now() });
+    const shouldRefresh = diskCached.ageMs > DISK_REFRESH_INTERVAL;
+    const isStale = diskCached.ageMs > DISK_CACHE_TTL;
+    if ((shouldRefresh || isStale) && !CACHE.commitsInflight.get(cacheKey)) {
+      CACHE.commitsInflight.set(cacheKey, true);
+      setImmediate(() => {
+        try { refreshRepoCommits(repoFullName, limit, cacheKey, diskKey); } finally { CACHE.commitsInflight.delete(cacheKey); }
+      });
+    }
+    return diskCached.value;
+  }
+
+  if (CACHE.commitsInflight.get(cacheKey)) {
+    return cached ? cached.data : [];
+  }
+  CACHE.commitsInflight.set(cacheKey, true);
+  const data = refreshRepoCommits(repoFullName, limit, cacheKey, diskKey);
+  CACHE.commitsInflight.delete(cacheKey);
+  return data;
+}
+
+function refreshRepoCommits(repoFullName, limit, cacheKey, diskKey) {
+  const cached = CACHE.commits.get(cacheKey);
   
   const timer = perf('GitHub', `getRepoCommits [${repoFullName}]`);
   const raw = exec(`gh api repos/${repoFullName}/commits?per_page=${limit} ${DEVNULL}`);
@@ -365,6 +450,7 @@ function getRepoCommits(repoFullName, limit = 15) {
     const data = JSON.parse(raw);
     const result = data.map(c => ({ sha: c.sha?.substring(0, 7), fullSha: c.sha, message: c.commit?.message, author: c.commit?.author?.name, date: c.commit?.author?.date, url: c.html_url }));
     CACHE.commits.set(cacheKey, { data: result, time: Date.now() });
+    writeDiskCache(diskKey, result);
     timer.end(`成功获取 ${result.length} 个 Commits`);
     return result;
   } catch (err) {
@@ -379,6 +465,33 @@ function getRepoSkills(repoFullName) {
   if (cached && (Date.now() - cached.time < CACHE_TTL)) {
     return cached.data;
   }
+
+  const diskKey = `skills-${repoFullName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const diskCached = readDiskCache(diskKey);
+  if (diskCached && diskCached.value !== undefined) {
+    CACHE.skills.set(repoFullName, { data: diskCached.value, time: Date.now() });
+    const shouldRefresh = diskCached.ageMs > DISK_REFRESH_INTERVAL;
+    const isStale = diskCached.ageMs > DISK_CACHE_TTL;
+    if ((shouldRefresh || isStale) && !CACHE.skillsInflight.get(repoFullName)) {
+      CACHE.skillsInflight.set(repoFullName, true);
+      setImmediate(() => {
+        try { refreshRepoSkills(repoFullName, diskKey); } finally { CACHE.skillsInflight.delete(repoFullName); }
+      });
+    }
+    return diskCached.value;
+  }
+
+  if (CACHE.skillsInflight.get(repoFullName)) {
+    return cached ? cached.data : [];
+  }
+  CACHE.skillsInflight.set(repoFullName, true);
+  const data = refreshRepoSkills(repoFullName, diskKey);
+  CACHE.skillsInflight.delete(repoFullName);
+  return data;
+}
+
+function refreshRepoSkills(repoFullName, diskKey) {
+  const cached = CACHE.skills.get(repoFullName);
   
   const raw = exec(`gh api repos/${repoFullName}/contents ${DEVNULL}`);
   if (!raw) return cached ? cached.data : [];
@@ -386,6 +499,7 @@ function getRepoSkills(repoFullName) {
     const data = JSON.parse(raw);
     const result = data.filter(f => f.name?.endsWith('.md') && f.name !== 'README.md').map(f => ({ name: f.name, path: f.path, url: f.html_url, sha: f.sha?.substring(0, 7) }));
     CACHE.skills.set(repoFullName, { data: result, time: Date.now() });
+    writeDiskCache(diskKey, result);
     return result;
   } catch {
     return cached ? cached.data : [];
@@ -393,6 +507,12 @@ function getRepoSkills(repoFullName) {
 }
 
 function getInstalledSkills(bot) {
+  const cacheKey = bot.id || bot.container || bot.name || 'unknown';
+  const cached = CACHE.installedSkills.get(cacheKey);
+  if (cached && (Date.now() - cached.time < CACHE_TTL)) {
+    return cached.data;
+  }
+
   const mcps = [];
   const skills = [];
   if (bot.type === 'host') {
@@ -480,7 +600,9 @@ function getInstalledSkills(bot) {
       } catch {}
     }
   }
-  return { mcps, skills };
+  const result = { mcps, skills };
+  CACHE.installedSkills.set(cacheKey, { data: result, time: Date.now() });
+  return result;
 }
 
 function parseSkillMeta(content) {
@@ -808,6 +930,7 @@ app.get('/api/monitor', (req, res) => {
 app.get('/api/status', (req, res) => {
   const timer = perf('API', 'GET /api/status');
   logger.debug('状态', '开始获取总览数据');
+  const lite = req.query?.lite === '1' || req.query?.lite === 'true';
   
   const t1 = Date.now();
   const dockerStatuses = getDockerStatus();
@@ -815,17 +938,23 @@ app.get('/api/status', (req, res) => {
   logger.debug('状态', `容器状态获取完成`, { duration: `${Date.now() - t1}ms` });
   
   const t2 = Date.now();
-  const issues = getGitHubIssues(50);
-  logger.debug('状态', `GitHub Issues 获取完成`, { count: issues.length, duration: `${Date.now() - t2}ms` });
+  const issues = lite ? [] : getGitHubIssues(50);
+  if (!lite) {
+    logger.debug('状态', `GitHub Issues 获取完成`, { count: issues.length, duration: `${Date.now() - t2}ms` });
+  }
   
-  const cronJobs = getCronJobs();
-  const allFormatted = issues.map(formatIssue);
+  const cronJobs = lite ? [] : getCronJobs();
+  const allFormatted = lite ? [] : issues.map(formatIssue);
 
   const t3 = Date.now();
   const bots = BOTS.map((bot) => {
     const status = bot.type === 'host' ? hostStatus : (dockerStatuses[bot.container] || { state: 'unknown', status: 'Unknown', health: 'unknown', running: false });
     let tasks;
-    if (bot.id === 'leader') {
+    if (lite) {
+      tasks = bot.id === 'leader'
+        ? { dispatched: [], pending: [], accepted: [], done: [], blocked: [], total: 0 }
+        : { pending: [], inProgress: [], done: [], blocked: [], total: 0 };
+    } else if (bot.id === 'leader') {
       const dispatched = allFormatted.filter((t) => t.assignedTo !== 'unassigned');
       tasks = { dispatched, pending: dispatched.filter((t) => t.status === 'pending'), accepted: dispatched.filter((t) => t.status === 'in-progress'), done: dispatched.filter((t) => t.status === 'done'), blocked: dispatched.filter((t) => t.status === 'blocked'), total: dispatched.length };
     } else {
@@ -833,8 +962,8 @@ app.get('/api/status', (req, res) => {
       tasks = { pending: botIssues.filter((t) => t.status === 'pending'), inProgress: botIssues.filter((t) => t.status === 'in-progress'), done: botIssues.filter((t) => t.status === 'done'), blocked: botIssues.filter((t) => t.status === 'blocked'), total: botIssues.length };
     }
     let botCron = [];
-    if (bot.id === 'leader') { botCron = cronJobs; }
-    else if (bot.pollInterval) {
+    if (!lite && bot.id === 'leader') { botCron = cronJobs; }
+    else if (!lite && bot.pollInterval) {
       const pollMeta = getPollMeta(bot.container);
       const nowSec = Math.floor(Date.now() / 1000);
       let nextRunAt = null, lastRunAt = null;
@@ -845,9 +974,9 @@ app.get('/api/status', (req, res) => {
       }
       botCron = [{ id: `poll-${bot.id}`, name: '任务轮询', description: `每 ${bot.pollInterval} 分钟检查 GitHub 新任务`, enabled: status.running, schedule: { kind: 'every', everyMs: bot.pollInterval * 60000 }, lastRunAt, nextRunAt, lastStatus: status.running ? 'ok' : 'stopped', lastDuration: null, errors: 0 }];
     }
-    const commits = getRepoCommits(bot.codeRepo, 5);
-    const skills = getRepoSkills(bot.skillsRepo);
-    const { mcps, skills: localSkills } = getInstalledSkills(bot);
+    const commits = lite ? [] : getRepoCommits(bot.codeRepo, 5);
+    const skills = lite ? [] : getRepoSkills(bot.skillsRepo);
+    const { mcps, skills: localSkills } = lite ? { mcps: [], skills: [] } : getInstalledSkills(bot);
     return { ...bot, status, tasks, cron: botCron, commits, skills, mcps, installedSkills: localSkills };
   });
   logger.debug('状态', `Bot 数据组装完成`, { duration: `${Date.now() - t3}ms` });
@@ -859,22 +988,31 @@ app.get('/api/status', (req, res) => {
     openTasks: allFormatted.filter((t) => t.state === 'OPEN').length
   });
   
-  res.json({ timestamp: new Date().toISOString(), bots, stats: { totalTasks: allFormatted.length, openTasks: allFormatted.filter((t) => t.state === 'OPEN').length, doneTasks: allFormatted.filter((t) => t.status === 'done').length } });
+  const stats = lite
+    ? { totalTasks: 0, openTasks: 0, doneTasks: 0 }
+    : { totalTasks: allFormatted.length, openTasks: allFormatted.filter((t) => t.state === 'OPEN').length, doneTasks: allFormatted.filter((t) => t.status === 'done').length };
+  res.json({ timestamp: new Date().toISOString(), bots, stats, lite });
 });
 
 app.get('/api/bot/:id', (req, res) => {
   const bot = BOTS.find((b) => b.id === req.params.id);
   if (!bot) return res.status(404).json({ error: 'Bot not found' });
+  const lite = req.query?.lite === '1' || req.query?.lite === 'true';
   const dockerStatuses = getDockerStatus();
   const hostStatus = getHostGatewayStatus();
   const status = bot.type === 'host' ? hostStatus : (dockerStatuses[bot.container] || { state: 'unknown', status: 'Unknown', health: 'unknown', running: false });
-  const issues = getGitHubIssues(200);
-  const allFormatted = issues.map(formatIssue);
-  let tasks = bot.id === 'leader' ? allFormatted.filter((t) => t.assignedTo !== 'unassigned') : allFormatted.filter((t) => t.labels.includes(bot.label));
-  const commits = getRepoCommits(bot.codeRepo, 50);
-  const skills = getRepoSkills(bot.skillsRepo);
+  const issues = lite ? [] : getGitHubIssues(200);
+  const allFormatted = lite ? [] : issues.map(formatIssue);
+  let tasks = [];
+  if (!lite) {
+    tasks = bot.id === 'leader'
+      ? allFormatted.filter((t) => t.assignedTo !== 'unassigned')
+      : allFormatted.filter((t) => t.labels.includes(bot.label));
+  }
+  const commits = lite ? [] : getRepoCommits(bot.codeRepo, 50);
+  const skills = lite ? [] : getRepoSkills(bot.skillsRepo);
   const { mcps, skills: localSkills } = getInstalledSkills(bot);
-  res.json({ ...bot, status, tasks, commits, skills, mcps, installedSkills: localSkills, timestamp: new Date().toISOString() });
+  res.json({ ...bot, status, tasks, commits, skills, mcps, installedSkills: localSkills, lite, timestamp: new Date().toISOString() });
 });
 
 // ── 对话内容 API（读取 OpenClaw 会话 JSONL）──

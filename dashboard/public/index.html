@@ -810,7 +810,7 @@ async function restartBot(id, event){
 }
 
 /* ═══════════ TAB 1: Overview ═══════════ */
-async function fetchOverview(){
+async function fetchOverview(lite=false){
   // 立即显示框架和骨架屏
   if(!ovData) {
     showOverviewFramework();
@@ -818,7 +818,7 @@ async function fetchOverview(){
   }
   
   try{
-    const r=await fetch('/api/status');
+    const r=await fetch(lite?'/api/status?lite=1':'/api/status');
     ovData=await r.json();
     if(activeTab==='overview'&&overviewView==='home')renderOverview();
   }catch(e){
@@ -879,18 +879,21 @@ function renderOverview(){
   }
   
   // Web 模式渲染
+  const isLoading=!!ovData.lite;
   const s=ovData.stats;const on=ovData.bots.filter(b=>b.status.running).length;
-  document.getElementById('globalStats').innerHTML=`<span class="stat-badge green">${on}/${ovData.bots.length} 在线</span><span class="stat-badge yellow">${s.openTasks} 待办</span><span class="stat-badge blue">${s.doneTasks} 完成</span>`;
+  document.getElementById('globalStats').innerHTML=isLoading
+    ? `<span class="stat-badge">加载中...</span>`
+    : `<span class="stat-badge green">${on}/${ovData.bots.length} 在线</span><span class="stat-badge yellow">${s.openTasks} 待办</span><span class="stat-badge blue">${s.doneTasks} 完成</span>`;
   document.getElementById('refreshInfo').textContent=`${new Date(ovData.timestamp).toLocaleTimeString('zh-CN')}`;
   document.getElementById('colToggles').innerHTML=ovData.bots.map(b=>{const d=BD[b.id]||{};const vis=colVisible[b.id]!==false;const hc=b.status.running?'on':'off';return`<button class="col-toggle${vis?' active':''}" onclick="toggleCol('${b.id}')"><span class="tog-dot ${hc}"></span>${d.avatar||b.avatar} ${d.name||b.name}${vis?'':' (隐藏)'}</button>`;}).join('');
-  document.getElementById('botColumns').innerHTML=ovData.bots.map(b=>{const d=BD[b.id]||{};const n=d.name||b.name;const c=d.color||b.color;const a=d.avatar||b.avatar;const vis=colVisible[b.id]!==false;const hc=b.status.health==='healthy'?'healthy':b.status.health==='unhealthy'?'unhealthy':'unknown';const st=b.status.running?b.status.status:'离线';return`<div class="bot-column${vis?'':' hidden'}" id="col-${b.id}"><div class="col-header" onclick="openBotDetail('${b.id}')" style="cursor:pointer;border-left:3px solid ${c}"><span class="col-icon">${a}</span><div><h2>${n}</h2><div class="col-role">${b.role}</div></div><div class="col-actions">${restartButtonHtml(b.id,true)}<div class="col-status"><span class="col-status-text">${st}</span><span class="col-dot ${hc}"></span></div></div></div><div class="cap-row">${b.capabilities.map(cap=>`<span class="cap">${cap}</span>`).join('')}</div>${b.id==='leader'?renderLeaderTasks(b):renderWorkerTasks(b,n)}${renderBotCron(b)}${renderBotCommits(b)}${renderBotMcps(b)}${renderBotSkills(b)}</div>`;}).join('');
+  document.getElementById('botColumns').innerHTML=ovData.bots.map(b=>{const d=BD[b.id]||{};const n=d.name||b.name;const c=d.color||b.color;const a=d.avatar||b.avatar;const vis=colVisible[b.id]!==false;const hc=b.status.health==='healthy'?'healthy':b.status.health==='unhealthy'?'unhealthy':'unknown';const st=b.status.running?b.status.status:'离线';return`<div class="bot-column${vis?'':' hidden'}" id="col-${b.id}"><div class="col-header" onclick="openBotDetail('${b.id}')" style="cursor:pointer;border-left:3px solid ${c}"><span class="col-icon">${a}</span><div><h2>${n}</h2><div class="col-role">${b.role}</div></div><div class="col-actions">${restartButtonHtml(b.id,true)}<div class="col-status"><span class="col-status-text">${st}</span><span class="col-dot ${hc}"></span></div></div></div><div class="cap-row">${b.capabilities.map(cap=>`<span class="cap">${cap}</span>`).join('')}</div>${b.id==='leader'?renderLeaderTasks(b,isLoading):renderWorkerTasks(b,n,isLoading)}${renderBotCron(b,isLoading)}${renderBotCommits(b,isLoading)}${renderBotMcps(b,isLoading)}${renderBotSkills(b,isLoading)}</div>`;}).join('');
 }
-function renderLeaderTasks(b){const t=b.tasks;const all=t.dispatched||[];return`<div class="panel"><div class="panel-head"><h3>📤 已分派</h3><span class="link" onclick="openBotDetail('leader')">全部 →</span></div><div class="mini-stats"><div class="ms p"><div class="n">${t.pending.length}</div><div class="l">待接收</div></div><div class="ms w"><div class="n">${t.accepted.length}</div><div class="l">已接收</div></div><div class="ms d"><div class="n">${t.done.length}</div><div class="l">完成</div></div><div class="ms b"><div class="n">${t.blocked.length}</div><div class="l">阻塞</div></div></div><div class="panel-body">${all.length?all.slice(0,6).map(i=>{const tg=BD[i.assignedTo]||{};let badge,bc;if(i.status==='pending'){badge='待接收';bc='dispatched';}else if(i.status==='in-progress'){badge='已接收';bc='accepted';}else if(i.status==='done'){badge='完成';bc='done';}else{badge='阻塞';bc='blocked';}return`<div class="t-row" onclick="openTaskModal(${i.number})"><span class="t-num">#${i.number}</span><span class="t-title">${esc(i.title)}</span><span class="t-badge ${bc}">${badge}</span><span class="t-target">→${tg.avatar||''}${tg.name||i.assignedTo}</span><span class="t-time">${timeAgo(i.updatedAt)}</span></div>`;}).join(''):'<div class="empty-msg">暂无</div>'}</div></div>`;}
-function renderWorkerTasks(b,name){const t=b.tasks;const all=[...(t.blocked||[]),...(t.inProgress||[]),...(t.pending||[]),...(t.done||[])];return`<div class="panel"><div class="panel-head"><h3>📥 任务</h3><span class="link" onclick="openBotDetail('${b.id}')">全部 →</span></div><div class="mini-stats"><div class="ms p"><div class="n">${t.pending.length}</div><div class="l">待处理</div></div><div class="ms w"><div class="n">${(t.inProgress||[]).length}</div><div class="l">进行中</div></div><div class="ms d"><div class="n">${t.done.length}</div><div class="l">完成</div></div><div class="ms b"><div class="n">${t.blocked.length}</div><div class="l">阻塞</div></div></div><div class="panel-body">${all.length?all.slice(0,6).map(i=>{const sl={pending:'待处理','in-progress':'进行中',done:'完成',blocked:'阻塞'}[i.status]||'?';return`<div class="t-row" onclick="openTaskModal(${i.number})"><span class="t-num">#${i.number}</span><span class="t-title">${esc(i.title)}</span><span class="t-badge ${i.status}">${sl}</span><span class="t-time">${timeAgo(i.updatedAt)}</span></div>`;}).join(''):'<div class="empty-msg">暂无</div>'}</div></div>`;}
-function renderBotCron(b){const jobs=b.cron||[];if(!jobs.length)return'';return`<div class="panel"><div class="panel-head"><h3>⏰ 定时任务</h3><span class="cnt">${jobs.length}</span></div><div class="panel-body">${jobs.map(j=>{const on=j.enabled;const next=j.nextRunAt||null;const rm=next?next-Date.now():null;let cd;if(!on)cd='已暂停';else if(rm!==null)cd=fmtCountdownFull(rm);else cd='计算中...';const sc=(rm!==null&&rm<60000&&rm>0)?' soon':'';const last=j.lastRunAt?timeAgo(new Date(j.lastRunAt).toISOString()):'尚未运行';return`<div class="c-row"><span class="c-dot ${on?'on':'off'}"></span><div class="c-info"><div class="c-name">${j.name}</div><div class="c-desc">${j.description||''}</div></div><div class="c-right"><div class="c-countdown${sc}" data-next="${next||''}">${cd}</div><div class="c-last">上次: ${last}</div></div></div>`;}).join('')}</div></div>`;}
-function renderBotCommits(b){const c=b.commits||[];const u=`https://github.com/${b.codeRepo}`;return`<div class="panel"><div class="panel-head"><h3>📦 代码</h3><a href="${u}" target="_blank">仓库→</a></div><div class="panel-body">${c.length?c.slice(0,4).map(renderCommitRow).join(''):'<div class="empty-msg">暂无提交</div>'}</div></div>`;}
-function renderBotMcps(b){const m=b.mcps||[];if(!m.length)return'';return`<div class="panel"><div class="panel-head"><h3>🔌 MCP / 工具</h3><span class="cnt">${m.length}</span></div><div class="panel-body">${m.map(sk=>`<div class="skill-row"><span class="skill-icon">🔧</span><div style="flex:1;min-width:0"><div class="skill-name">${esc(sk.name)}${sk.version?`<span class="skill-ver">v${esc(sk.version)}</span>`:''}</div>${sk.description?`<div class="skill-desc">${esc(sk.description)}</div>`:''}</div></div>`).join('')}</div></div>`;}
-function renderBotSkills(b){const s=b.installedSkills||[];return`<div class="panel"><div class="panel-head"><h3>🧠 技能</h3><span class="cnt">${s.length}</span></div><div class="panel-body">${s.length?s.map(sk=>`<div class="skill-row"><span class="skill-icon">📘</span><div style="flex:1;min-width:0"><div class="skill-name">${esc(sk.name)}${sk.version?`<span class="skill-ver">v${esc(sk.version)}</span>`:''}</div>${sk.description?`<div class="skill-desc">${esc(sk.description)}</div>`:''}</div></div>`).join(''):'<div class="empty-msg">暂无技能</div>'}</div></div>`;}
+function renderLeaderTasks(b,isLoading){const t=b.tasks||{};const all=t.dispatched||[];const num=v=>isLoading?'--':v;const body=isLoading?'<div class="empty-msg loading">加载中...</div>':(all.length?all.slice(0,6).map(i=>{const tg=BD[i.assignedTo]||{};let badge,bc;if(i.status==='pending'){badge='待接收';bc='dispatched';}else if(i.status==='in-progress'){badge='已接收';bc='accepted';}else if(i.status==='done'){badge='完成';bc='done';}else{badge='阻塞';bc='blocked';}return`<div class="t-row" onclick="openTaskModal(${i.number})"><span class="t-num">#${i.number}</span><span class="t-title">${esc(i.title)}</span><span class="t-badge ${bc}">${badge}</span><span class="t-target">→${tg.avatar||''}${tg.name||i.assignedTo}</span><span class="t-time">${timeAgo(i.updatedAt)}</span></div>`;}).join(''):'<div class="empty-msg">暂无</div>');return`<div class="panel"><div class="panel-head"><h3>📤 已分派</h3><span class="link" onclick="openBotDetail('leader')">全部 →</span></div><div class="mini-stats"><div class="ms p"><div class="n">${num((t.pending||[]).length)}</div><div class="l">待接收</div></div><div class="ms w"><div class="n">${num((t.accepted||[]).length)}</div><div class="l">已接收</div></div><div class="ms d"><div class="n">${num((t.done||[]).length)}</div><div class="l">完成</div></div><div class="ms b"><div class="n">${num((t.blocked||[]).length)}</div><div class="l">阻塞</div></div></div><div class="panel-body">${body}</div></div>`;}
+function renderWorkerTasks(b,name,isLoading){const t=b.tasks||{};const all=[...((t.blocked)||[]),...((t.inProgress)||[]),...((t.pending)||[]),...((t.done)||[])];const num=v=>isLoading?'--':v;const body=isLoading?'<div class="empty-msg loading">加载中...</div>':(all.length?all.slice(0,6).map(i=>{const sl={pending:'待处理','in-progress':'进行中',done:'完成',blocked:'阻塞'}[i.status]||'?';return`<div class="t-row" onclick="openTaskModal(${i.number})"><span class="t-num">#${i.number}</span><span class="t-title">${esc(i.title)}</span><span class="t-badge ${i.status}">${sl}</span><span class="t-time">${timeAgo(i.updatedAt)}</span></div>`;}).join(''):'<div class="empty-msg">暂无</div>');return`<div class="panel"><div class="panel-head"><h3>📥 任务</h3><span class="link" onclick="openBotDetail('${b.id}')">全部 →</span></div><div class="mini-stats"><div class="ms p"><div class="n">${num((t.pending||[]).length)}</div><div class="l">待处理</div></div><div class="ms w"><div class="n">${num(((t.inProgress)||[]).length)}</div><div class="l">进行中</div></div><div class="ms d"><div class="n">${num((t.done||[]).length)}</div><div class="l">完成</div></div><div class="ms b"><div class="n">${num((t.blocked||[]).length)}</div><div class="l">阻塞</div></div></div><div class="panel-body">${body}</div></div>`;}
+function renderBotCron(b,isLoading){const jobs=b.cron||[];if(isLoading)return`<div class="panel"><div class="panel-head"><h3>⏰ 定时任务</h3></div><div class="panel-body"><div class="empty-msg loading">加载中...</div></div></div>`;if(!jobs.length)return'';return`<div class="panel"><div class="panel-head"><h3>⏰ 定时任务</h3><span class="cnt">${jobs.length}</span></div><div class="panel-body">${jobs.map(j=>{const on=j.enabled;const next=j.nextRunAt||null;const rm=next?next-Date.now():null;let cd;if(!on)cd='已暂停';else if(rm!==null)cd=fmtCountdownFull(rm);else cd='计算中...';const sc=(rm!==null&&rm<60000&&rm>0)?' soon':'';const last=j.lastRunAt?timeAgo(new Date(j.lastRunAt).toISOString()):'尚未运行';return`<div class="c-row"><span class="c-dot ${on?'on':'off'}"></span><div class="c-info"><div class="c-name">${j.name}</div><div class="c-desc">${j.description||''}</div></div><div class="c-right"><div class="c-countdown${sc}" data-next="${next||''}">${cd}</div><div class="c-last">上次: ${last}</div></div></div>`;}).join('')}</div></div>`;}
+function renderBotCommits(b,isLoading){const c=b.commits||[];const u=`https://github.com/${b.codeRepo}`;const body=isLoading?'<div class="empty-msg loading">加载中...</div>':(c.length?c.slice(0,4).map(renderCommitRow).join(''):'<div class="empty-msg">暂无提交</div>');return`<div class="panel"><div class="panel-head"><h3>📦 代码</h3><a href="${u}" target="_blank">仓库→</a></div><div class="panel-body">${body}</div></div>`;}
+function renderBotMcps(b,isLoading){const m=b.mcps||[];if(isLoading)return`<div class="panel"><div class="panel-head"><h3>🔌 MCP / 工具</h3></div><div class="panel-body"><div class="empty-msg loading">加载中...</div></div></div>`;if(!m.length)return'';return`<div class="panel"><div class="panel-head"><h3>🔌 MCP / 工具</h3><span class="cnt">${m.length}</span></div><div class="panel-body">${m.map(sk=>`<div class="skill-row"><span class="skill-icon">🔧</span><div style="flex:1;min-width:0"><div class="skill-name">${esc(sk.name)}${sk.version?`<span class="skill-ver">v${esc(sk.version)}</span>`:''}</div>${sk.description?`<div class="skill-desc">${esc(sk.description)}</div>`:''}</div></div>`).join('')}</div></div>`;}
+function renderBotSkills(b,isLoading){const s=b.installedSkills||[];const body=isLoading?'<div class="empty-msg loading">加载中...</div>':(s.length?s.map(sk=>`<div class="skill-row"><span class="skill-icon">📘</span><div style="flex:1;min-width:0"><div class="skill-name">${esc(sk.name)}${sk.version?`<span class="skill-ver">v${esc(sk.version)}</span>`:''}</div>${sk.description?`<div class="skill-desc">${esc(sk.description)}</div>`:''}</div></div>`).join(''):'<div class="empty-msg">暂无技能</div>');return`<div class="panel"><div class="panel-head"><h3>🧠 技能</h3><span class="cnt">${isLoading?'--':s.length}</span></div><div class="panel-body">${body}</div></div>`;}
 function renderCommitRow(c){const t=(c.message||'').split('\n')[0]||'';return`<div class="commit-row"><a class="commit-sha" href="${c.url||'#'}" target="_blank">${c.sha}</a><div class="commit-msg"><span class="cm-title">${esc(t)}</span></div><span class="commit-time">${timeAgo(c.date)}</span></div>`;}
 
 /* Sub-page */
@@ -1336,24 +1339,57 @@ async function fetchMonitor(){
     showMonitorFramework();
     showSkeletonMonitor();
   }
+  const firstLoad=!monData;
+  if(firstLoad){
+    workerLogs.qianwen={loading:true,logs:[]};
+    workerLogs.kimi={loading:true,logs:[]};
+    workerConvData.qianwen={loading:true,messages:[]};
+    workerConvData.kimi={loading:true,messages:[]};
+  }
   
   try{
-    const[r1,r2,r3,r4,r5,r6,r7,r8]=await Promise.all([
-      fetch('/api/monitor'),fetch('/api/monitor/conversation?limit=20&botId=leader'),
-      fetch('/api/bot/kimi/logs'),fetch('/api/bot/qianwen/logs'),
-      fetch('/api/monitor/conversation?limit=20&botId=qianwen'),
-      fetch('/api/monitor/conversation?limit=20&botId=kimi'),
-      fetch('/api/bot/qianwen'),fetch('/api/bot/kimi')
+    const[r1,r2]=await Promise.all([
+      fetch('/api/monitor'),
+      fetch('/api/monitor/conversation?limit=20&botId=leader')
     ]);
-    monData=await r1.json();convData=await r2.json();
-    workerLogs.kimi=await r3.json();workerLogs.qianwen=await r4.json();
-    workerConvData.qianwen=await r5.json();workerConvData.kimi=await r6.json();
-    const qianwenData=await r7.json();const kimiData=await r8.json();
-    workerLogs.qianwen.mcps=qianwenData.mcps||[];
-    workerLogs.qianwen.installedSkills=qianwenData.installedSkills||[];
-    workerLogs.kimi.mcps=kimiData.mcps||[];
-    workerLogs.kimi.installedSkills=kimiData.installedSkills||[];
+    monData=await r1.json();
+    convData=await r2.json();
     if(activeTab==='monitor')renderMonitor();
+
+    (async ()=>{
+      try{
+        const[r3,r4,r5,r6,r7,r8]=await Promise.all([
+          fetch('/api/bot/kimi/logs'),
+          fetch('/api/bot/qianwen/logs'),
+          fetch('/api/monitor/conversation?limit=20&botId=qianwen'),
+          fetch('/api/monitor/conversation?limit=20&botId=kimi'),
+          fetch('/api/bot/qianwen?lite=1'),
+          fetch('/api/bot/kimi?lite=1')
+        ]);
+        workerLogs.kimi=await r3.json();
+        workerLogs.qianwen=await r4.json();
+        workerConvData.qianwen=await r5.json();
+        workerConvData.kimi=await r6.json();
+        const qianwenData=await r7.json();
+        const kimiData=await r8.json();
+        workerLogs.qianwen.mcps=qianwenData.mcps||[];
+        workerLogs.qianwen.installedSkills=qianwenData.installedSkills||[];
+        workerLogs.kimi.mcps=kimiData.mcps||[];
+        workerLogs.kimi.installedSkills=kimiData.installedSkills||[];
+        workerLogs.qianwen.loading=false;
+        workerLogs.kimi.loading=false;
+        workerConvData.qianwen.loading=false;
+        workerConvData.kimi.loading=false;
+        if(activeTab==='monitor')renderMonitor();
+      }catch(err){
+        workerLogs.qianwen.loading=false;
+        workerLogs.kimi.loading=false;
+        workerConvData.qianwen.loading=false;
+        workerConvData.kimi.loading=false;
+        if(activeTab==='monitor')renderMonitor();
+        console.error(err);
+      }
+    })();
   }catch(e){console.error(e);}
 }
 
@@ -1456,24 +1492,38 @@ function renderLeaderMonCol(b,vis){
 }
 function renderWorkerMonCol(b,vis){
   const wl=workerLogs[b.id]||{};const logs=wl.logs||[];const st=wl.status||{};
-  const pm=wl.pollMeta;const on=st.running||st.state==='running';
+  const loading=!!wl.loading||!!(workerConvData[b.id]&&workerConvData[b.id].loading);
+  const pm=wl.pollMeta;const on=!loading&&(st.running||st.state==='running');
   let nextPoll='--';let nextPollMs=null;
-  if(pm){const lp=pm.lastPollAt;if(lp){nextPollMs=(lp+pm.interval)*1000-Date.now();nextPoll=fmtCountdownFull(nextPollMs);}}
-  const pollInterval=pm?Math.round(pm.interval/60)+'分钟':'--';
-  const lastPollTime=pm&&pm.lastPollAt?fmtTime(pm.lastPollAt*1000):'--';
+  if(pm&&!loading){const lp=pm.lastPollAt;if(lp){nextPollMs=(lp+pm.interval)*1000-Date.now();nextPoll=fmtCountdownFull(nextPollMs);}}
+  const pollInterval=pm&&!loading?Math.round(pm.interval/60)+'分钟':'--';
+  const lastPollTime=pm&&pm.lastPollAt&&!loading?fmtTime(pm.lastPollAt*1000):'--';
   const tagMap={poll:'轮询',idle:'空闲',processing:'处理',working:'执行',complete:'完成',handoff:'交接',error:'错误',warn:'警告',info:'信息'};
   const tagCls={poll:'processing',idle:'stream_done',processing:'incoming',working:'streaming',complete:'complete',handoff:'complete',error:'error',warn:'warn',info:'stream_done'};
   const taskLogs=logs.filter(l=>l.type==='processing'||l.type==='working'||l.type==='complete'||l.type==='handoff');
   const sysLogs=logs.filter(l=>l.type!=='processing'&&l.type!=='working'&&l.type!=='complete'&&l.type!=='handoff');
   const msgs=(workerConvData[b.id]&&workerConvData[b.id].messages)||[];
+  const msgCount=loading?'--':msgs.length;
+  const taskCount=loading?'--':taskLogs.length;
+  const sysCount=loading?'--':sysLogs.length;
   const mcps=wl.mcps||[];const skills=wl.installedSkills||[];
   
-  let mcpHtml='';if(mcps.length)mcpHtml=`<div class="panel"><div class="panel-head"><h3>🔌 MCP / 工具</h3><span class="cnt">${mcps.length}</span></div><div class="panel-body">${mcps.map(sk=>`<div class="skill-row"><span class="skill-icon">🔧</span><div style="flex:1;min-width:0"><div class="skill-name">${esc(sk.name)}${sk.version?`<span class="skill-ver">v${esc(sk.version)}</span>`:''}</div>${sk.description?`<div class="skill-desc">${esc(sk.description)}</div>`:''}</div></div>`).join('')}</div></div>`;
-  let skillHtml=`<div class="panel"><div class="panel-head"><h3>🧠 技能</h3><span class="cnt">${skills.length}</span></div><div class="panel-body">${skills.length?skills.map(sk=>`<div class="skill-row"><span class="skill-icon">📘</span><div style="flex:1;min-width:0"><div class="skill-name">${esc(sk.name)}${sk.version?`<span class="skill-ver">v${esc(sk.version)}</span>`:''}</div>${sk.description?`<div class="skill-desc">${esc(sk.description)}</div>`:''}</div></div>`).join(''):'<div class="empty-msg">暂无技能</div>'}</div></div>`;
+  let mcpHtml='';
+  if(loading)mcpHtml=`<div class="panel"><div class="panel-head"><h3>🔌 MCP / 工具</h3></div><div class="panel-body"><div class="empty-msg loading">加载中...</div></div></div>`;
+  else if(mcps.length)mcpHtml=`<div class="panel"><div class="panel-head"><h3>🔌 MCP / 工具</h3><span class="cnt">${mcps.length}</span></div><div class="panel-body">${mcps.map(sk=>`<div class="skill-row"><span class="skill-icon">🔧</span><div style="flex:1;min-width:0"><div class="skill-name">${esc(sk.name)}${sk.version?`<span class="skill-ver">v${esc(sk.version)}</span>`:''}</div>${sk.description?`<div class="skill-desc">${esc(sk.description)}</div>`:''}</div></div>`).join('')}</div></div>`;
+  let skillHtml='';
+  if(loading)skillHtml=`<div class="panel"><div class="panel-head"><h3>🧠 技能</h3></div><div class="panel-body"><div class="empty-msg loading">加载中...</div></div></div>`;
+  else skillHtml=`<div class="panel"><div class="panel-head"><h3>🧠 技能</h3><span class="cnt">${skills.length}</span></div><div class="panel-body">${skills.length?skills.map(sk=>`<div class="skill-row"><span class="skill-icon">📘</span><div style="flex:1;min-width:0"><div class="skill-name">${esc(sk.name)}${sk.version?`<span class="skill-ver">v${esc(sk.version)}</span>`:''}</div>${sk.description?`<div class="skill-desc">${esc(sk.description)}</div>`:''}</div></div>`).join(''):'<div class="empty-msg">暂无技能</div>'}</div></div>`;
   
-  return`<div class="bot-column${vis?'':' hidden'}"><div class="col-header" style="border-left:3px solid ${b.color}"><span class="col-icon">${b.avatar}</span><div><h2>${b.name}</h2><div class="col-role">${on?'运行中':'离线'}${on?' · 轮询:'+nextPoll:''}</div></div><div class="col-actions">${restartButtonHtml(b.id,true)}<div class="col-status"><span class="col-status-text">${on?'轮询 '+pollInterval:'停止'}</span><span class="col-dot ${on?'healthy':'unhealthy'}"></span></div></div></div><div class="panel"><div class="panel-head"><h3>🧠 思考 & 对话</h3><span class="sub">${msgs.length}条</span></div><div class="chat-body" id="chatBody-${b.id}" style="max-height:400px">${renderWorkerChatMsgs(msgs,b)}</div></div><div class="panel"><div class="panel-head"><h3>🔧 任务执行</h3><span class="sub">${taskLogs.length}条</span></div><div class="panel-body" style="max-height:300px">${taskLogs.length?taskLogs.map(l=>`<div class="log-entry"><span class="log-time">${l.time?l.time.substring(11,19):'--:--'}</span><span class="log-tag ${tagCls[l.type]||'warn'}">${tagMap[l.type]||l.type}</span><span class="log-content">${esc(l.content)}</span></div>`).join(''):'<div class="empty-msg">暂无任务执行记录</div>'}</div></div><div class="panel"><div class="panel-head"><h3>📡 系统日志</h3><span class="cnt">${sysLogs.length}条</span></div><div class="panel-body" style="max-height:200px">${sysLogs.length?sysLogs.map(l=>`<div class="log-entry"><span class="log-time">${l.time?l.time.substring(11,19):'--:--'}</span><span class="log-tag ${tagCls[l.type]||'warn'}">${tagMap[l.type]||l.type}</span><span class="log-content">${esc(l.content)}</span></div>`).join(''):'<div class="empty-msg">暂无</div>'}</div></div>${mcpHtml}${skillHtml}<div class="panel"><div class="panel-head"><h3>⏰ 轮询调度</h3></div><div class="panel-body"><div class="c-row"><span class="c-dot ${on?'on':'off'}"></span><div class="c-info"><div class="c-name">GitHub Issues 轮询</div><div class="c-desc">每 ${pollInterval} 自动检查待处理任务</div></div><div class="c-right"><div class="c-countdown${(nextPollMs!==null&&nextPollMs<60000&&nextPollMs>0)?' soon':''}" data-next="${pm&&pm.lastPollAt?(pm.lastPollAt+pm.interval)*1000:''}">${on?nextPoll:'已停止'}</div><div class="c-last">上次: ${lastPollTime}</div></div></div></div></div></div>`;
+  const roleText=loading?'加载中...':(on?'运行中':'离线');
+  const statusText=loading?'加载中...':(on?'轮询 '+pollInterval:'停止');
+  const taskBody=loading?'<div class="empty-msg loading">加载中...</div>':(taskLogs.length?taskLogs.map(l=>`<div class="log-entry"><span class="log-time">${l.time?l.time.substring(11,19):'--:--'}</span><span class="log-tag ${tagCls[l.type]||'warn'}">${tagMap[l.type]||l.type}</span><span class="log-content">${esc(l.content)}</span></div>`).join(''):'<div class="empty-msg">暂无任务执行记录</div>');
+  const sysBody=loading?'<div class="empty-msg loading">加载中...</div>':(sysLogs.length?sysLogs.map(l=>`<div class="log-entry"><span class="log-time">${l.time?l.time.substring(11,19):'--:--'}</span><span class="log-tag ${tagCls[l.type]||'warn'}">${tagMap[l.type]||l.type}</span><span class="log-content">${esc(l.content)}</span></div>`).join(''):'<div class="empty-msg">暂无</div>');
+  
+  return`<div class="bot-column${vis?'':' hidden'}"><div class="col-header" style="border-left:3px solid ${b.color}"><span class="col-icon">${b.avatar}</span><div><h2>${b.name}</h2><div class="col-role">${roleText}${on?' · 轮询:'+nextPoll:''}</div></div><div class="col-actions">${restartButtonHtml(b.id,true)}<div class="col-status"><span class="col-status-text">${statusText}</span><span class="col-dot ${on?'healthy':'unhealthy'}"></span></div></div></div><div class="panel"><div class="panel-head"><h3>🧠 思考 & 对话</h3><span class="sub">${msgCount}条</span></div><div class="chat-body" id="chatBody-${b.id}" style="max-height:400px">${renderWorkerChatMsgs(msgs,b,loading)}</div></div><div class="panel"><div class="panel-head"><h3>🔧 任务执行</h3><span class="sub">${taskCount}条</span></div><div class="panel-body" style="max-height:300px">${taskBody}</div></div><div class="panel"><div class="panel-head"><h3>📡 系统日志</h3><span class="cnt">${sysCount}条</span></div><div class="panel-body" style="max-height:200px">${sysBody}</div></div>${mcpHtml}${skillHtml}<div class="panel"><div class="panel-head"><h3>⏰ 轮询调度</h3></div><div class="panel-body"><div class="c-row"><span class="c-dot ${on?'on':'off'}"></span><div class="c-info"><div class="c-name">GitHub Issues 轮询</div><div class="c-desc">每 ${pollInterval} 自动检查待处理任务</div></div><div class="c-right"><div class="c-countdown${(nextPollMs!==null&&nextPollMs<60000&&nextPollMs>0)?' soon':''}" data-next="${pm&&pm.lastPollAt?(pm.lastPollAt+pm.interval)*1000:''}">${on?nextPoll:(loading?'加载中...':'已停止')}</div><div class="c-last">上次: ${lastPollTime}</div></div></div></div></div></div>`;
 }
-function renderWorkerChatMsgs(msgs,bot){
+function renderWorkerChatMsgs(msgs,bot,loading){
+  if(loading)return'<div class="empty-msg loading">加载中...</div>';
   if(!msgs.length)return'<div class="empty-msg">暂无对话</div>';
   return msgs.map((m,i)=>{
     const time=m.timestamp?fmtTime(m.timestamp):'';
@@ -2203,7 +2253,9 @@ initTheme();
 // Boot
 if(isAppMode()) showAppOverviewFramework();
 else showOverviewFramework();
-fetchOverview();
+fetchOverview(true);
+if('requestIdleCallback' in window) requestIdleCallback(()=>fetchOverview(false));
+else setTimeout(()=>fetchOverview(false),300);
 ovTimer=setInterval(fetchOverview,30000);
 setInterval(tickAll,1000);
 </script>
