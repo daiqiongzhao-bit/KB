@@ -1,0 +1,54 @@
+services:
+  qianwen-worker:
+    build: .
+    container_name: ai-team-qianwen
+    restart: unless-stopped
+    environment:
+      - BOT_NAME=qianwen-worker
+      - BOT_ROLE=全能开发主力
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - CODING_PLAN_API_KEY=${CODING_PLAN_API_KEY}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - GITHUB_OWNER=${GITHUB_OWNER}
+      - POLL_INTERVAL=${POLL_INTERVAL}
+      - CODE_REPO=ai-team-fullstack-code
+      - SKILLS_REPO=ai-team-fullstack-skills
+    volumes:
+      - ./bots/qianwen-worker:/home/node/.openclaw-config:ro
+      - qianwen-state:/home/node/.openclaw
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18789/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  kimi-worker:
+    build: .
+    container_name: ai-team-kimi
+    restart: unless-stopped
+    environment:
+      - BOT_NAME=kimi-worker
+      - BOT_ROLE=深度分析专家
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - CODING_PLAN_API_KEY=${CODING_PLAN_API_KEY}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - GITHUB_OWNER=${GITHUB_OWNER}
+      - POLL_INTERVAL=${POLL_INTERVAL}
+      - CODE_REPO=ai-team-thinktank-code
+      - SKILLS_REPO=ai-team-thinktank-skills
+    volumes:
+      - ./bots/kimi-worker:/home/node/.openclaw-config:ro
+      - kimi-state:/home/node/.openclaw
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18789/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  qianwen-state:
+  kimi-state:

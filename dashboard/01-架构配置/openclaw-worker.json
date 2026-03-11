@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.3.2"
+  },
+  "auth": {
+    "profiles": {
+      "coding-plan:default": {
+        "provider": "coding-plan",
+        "mode": "api_key"
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "coding-plan": {
+        "baseUrl": "https://coding.dashscope.aliyuncs.com/v1",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "qwen3.5-plus",
+            "name": "Qwen 3.5 Plus",
+            "reasoning": true,
+            "input": ["text", "image"],
+            "cost": { "input": 4, "output": 16, "cacheRead": 0.4, "cacheWrite": 1.6 },
+            "contextWindow": 262144,
+            "maxTokens": 16384
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "coding-plan/qwen3.5-plus"
+      },
+      "thinkingDefault": "medium",
+      "workspace": "/home/node/.openclaw/workspace",
+      "compaction": { "mode": "safeguard" },
+      "maxConcurrent": 1,
+      "subagents": { "maxConcurrent": 2 }
+    }
+  },
+  "tools": {
+    "web": {
+      "fetch": { "enabled": true }
+    }
+  },
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "renderMode": "auto",
+      "accounts": {
+        "default": {
+          "appId": "<你的飞书应用 App ID>",
+          "appSecret": "<你的飞书应用 App Secret>"
+        }
+      }
+    }
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto"
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "<自动生成，执行 openclaw gateway install 即可>"
+    }
+  }
+}

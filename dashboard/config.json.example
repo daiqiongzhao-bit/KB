@@ -1,0 +1,47 @@
+{
+  "github": {
+    "owner": "<你的 GitHub 用户名>",
+    "token": "<你的 GitHub Personal Access Token (ghp_xxx)>",
+    "taskRepo": "<你的用户名/ai-team-tasks>"
+  },
+  "ai": {
+    "apiKey": "<你的 AI 模型 API Key (sk-xxx)>",
+    "provider": "coding-plan",
+    "baseUrl": "https://coding.dashscope.aliyuncs.com/v1"
+  },
+  "bots": {
+    "leader": {
+      "codeRepo": "<你的用户名/ai-team-leader-code>",
+      "skillsRepo": "<你的用户名/ai-team-leader-skills>"
+    },
+    "qianwen": {
+      "codeRepo": "<你的用户名/ai-team-fullstack-code>",
+      "skillsRepo": "<你的用户名/ai-team-fullstack-skills>"
+    },
+    "kimi": {
+      "codeRepo": "<你的用户名/ai-team-thinktank-code>",
+      "skillsRepo": "<你的用户名/ai-team-thinktank-skills>"
+    }
+  },
+  "feishu": {
+    "enabled": true,
+    "qianwen": {
+      "appId": "<飞书应用 App ID (cli_xxx)>",
+      "appSecret": "<飞书应用 App Secret>"
+    },
+    "kimi": {
+      "appId": "<飞书应用 App ID (cli_xxx)>",
+      "appSecret": "<飞书应用 App Secret>"
+    }
+  },
+  "pollInterval": 5,
+  "dashboard": {
+    "port": 3800,
+    "logging": {
+      "enabled": true,
+      "level": "INFO",
+      "file": true,
+      "console": true
+    }
+  }
+}

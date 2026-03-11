@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Team — 实时监控</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0b0b10;--surface:#13131d;--surface2:#1c1c2e;--surface3:#24243a;--border:#2a2a44;--text:#e8e8f4;--text2:#a0a0be;--text3:#6a6a88;--green:#22c55e;--yellow:#eab308;--red:#ef4444;--blue:#3b82f6;--purple:#a78bfa;--cyan:#4ecdc4;--orange:#ff6b35}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:var(--surface)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+.header{padding:14px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:100}
+.header h1{font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px}
+.header h1 span{font-size:22px}
+.header-right{display:flex;align-items:center;gap:12px}
+.header a{font-size:12px;color:var(--cyan);text-decoration:none;padding:4px 12px;border-radius:6px;background:var(--surface2);border:1px solid var(--border)}
+.header a:hover{background:var(--surface3)}
+.action-group{display:flex;align-items:center;gap:8px}
+.restart-btn{border:1px solid rgba(239,68,68,.25);background:rgba(239,68,68,.08);color:var(--red);border-radius:8px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;transition:all .12s;white-space:nowrap}
+.restart-btn:hover{background:rgba(239,68,68,.14)}
+.restart-btn:disabled{opacity:.65;cursor:wait}
+.restart-btn.compact{padding:3px 8px;font-size:9px}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite;display:inline-block}
+.refresh-info{font-size:11px;color:var(--text3)}
+
+.main{padding:20px 28px;display:flex;flex-direction:column;gap:16px}
+
+/* Status bar */
+.status-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.status-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center}
+.status-card .label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px}
+.status-card .value{font-size:28px;font-weight:800;margin-top:4px}
+.status-card .sub{font-size:11px;color:var(--text3);margin-top:2px}
+.status-card.ok .value{color:var(--green)}
+.status-card.warn .value{color:var(--yellow)}
+.status-card.err .value{color:var(--red)}
+.status-card.info .value{color:var(--cyan)}
+
+/* Panels grid */
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.panel.full{grid-column:1/-1}
+.panel-head{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface2)}
+.panel-head h3{font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px}
+.panel-head .sub{font-size:10px;color:var(--text3)}
+.panel-body{max-height:400px;overflow-y:auto}
+
+/* Log entries */
+.log-entry{padding:6px 14px;border-bottom:1px solid var(--border);font-size:11px;font-family:'SF Mono',Menlo,monospace;display:flex;gap:8px;line-height:1.5}
+.log-entry:last-child{border-bottom:none}
+.log-time{color:var(--text3);flex-shrink:0;min-width:60px}
+.log-tag{padding:0 5px;border-radius:3px;font-size:9px;font-weight:700;flex-shrink:0;text-align:center;min-width:36px;line-height:18px}
+.log-tag.incoming{background:rgba(59,130,246,.15);color:var(--blue)}
+.log-tag.processing{background:rgba(234,179,8,.15);color:var(--yellow)}
+.log-tag.complete{background:rgba(34,197,94,.15);color:var(--green)}
+.log-tag.streaming{background:rgba(167,139,250,.15);color:var(--purple)}
+.log-tag.stream_done{background:rgba(78,205,196,.15);color:var(--cyan)}
+.log-tag.warn{background:rgba(234,179,8,.15);color:var(--yellow)}
+.log-tag.error{background:rgba(239,68,68,.15);color:var(--red)}
+.log-tag.system{background:var(--surface3);color:var(--text3)}
+.log-content{flex:1;color:var(--text2);word-break:break-all}
+
+/* Timeline */
+.tl-entry{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;font-size:12px}
+.tl-entry:last-child{border-bottom:none}
+.tl-status{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.tl-status.done{background:var(--green)}
+.tl-status.thinking{background:var(--yellow);animation:pulse 1s infinite}
+.tl-status.streaming{background:var(--purple);animation:pulse .7s infinite}
+.tl-status.queued{background:var(--text3)}
+.tl-msg{flex:1;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-dur{font-family:'SF Mono',Menlo,monospace;font-size:11px;font-weight:700;flex-shrink:0;min-width:40px;text-align:right}
+.tl-dur.fast{color:var(--green)}
+.tl-dur.medium{color:var(--yellow)}
+.tl-dur.slow{color:var(--orange)}
+.tl-time{font-size:10px;color:var(--text3);flex-shrink:0}
+.tl-entry.active-msg{background:rgba(234,179,8,.06);border-left:2px solid var(--yellow)}
+
+/* Conversation / Chat */
+.chat-body{max-height:600px;overflow-y:auto;padding:12px 0}
+.chat-msg{padding:8px 16px;margin:4px 0}
+.chat-msg.user{border-left:3px solid var(--blue)}
+.chat-msg.assistant{border-left:3px solid var(--green)}
+.chat-role{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;display:flex;align-items:center;gap:6px}
+.chat-msg.user .chat-role{color:var(--blue)}
+.chat-msg.assistant .chat-role{color:var(--green)}
+.chat-role .chat-time{font-weight:400;color:var(--text3);letter-spacing:0}
+.chat-text{font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-word}
+.chat-text.collapsed{max-height:120px;overflow:hidden;position:relative}
+.chat-text.collapsed::after{content:'';position:absolute;bottom:0;left:0;right:0;height:40px;background:linear-gradient(transparent,var(--surface))}
+.chat-expand{font-size:10px;color:var(--cyan);cursor:pointer;margin-top:4px;display:inline-block}
+.chat-expand:hover{text-decoration:underline}
+.think-block{margin:4px 0 8px;padding:8px 12px;border-radius:8px;background:rgba(234,179,8,.06);border:1px solid rgba(234,179,8,.15);font-size:11px;line-height:1.5;color:var(--yellow);white-space:pre-wrap;word-break:break-word}
+.think-block.collapsed{max-height:80px;overflow:hidden;position:relative}
+.think-block.collapsed::after{content:'';position:absolute;bottom:0;left:0;right:0;height:30px;background:linear-gradient(transparent,rgba(11,11,16,.95))}
+.think-label{font-size:9px;font-weight:700;color:var(--yellow);opacity:.7;margin-bottom:3px;display:flex;align-items:center;gap:4px}
+
+/* Worker cards */
+.worker-row{display:flex;gap:12px;padding:10px 14px}
+.worker-card{flex:1;background:var(--surface3);border-radius:10px;padding:12px;display:flex;align-items:center;gap:10px}
+.worker-card .w-avatar{font-size:22px}
+.worker-card .w-info{flex:1}
+.worker-card .w-name{font-size:13px;font-weight:700}
+.worker-card .w-sub{font-size:10px;color:var(--text3)}
+.worker-card .w-status{text-align:right}
+.worker-card .w-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.worker-card .w-dot.on{background:var(--green)}
+.worker-card .w-dot.off{background:var(--red)}
+.worker-card .w-poll{font-size:10px;color:var(--cyan);font-family:monospace;margin-top:2px}
+
+/* Cron row */
+.cron-entry{padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;font-size:12px}
+.cron-entry:last-child{border-bottom:none}
+.cron-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.cron-dot.on{background:var(--green)}.cron-dot.off{background:var(--text3)}
+.cron-name{flex:1;font-weight:600}
+.cron-next{font-family:monospace;font-size:11px;color:var(--cyan)}
+
+/* System meters */
+.meter-row{display:flex;gap:16px;padding:14px}
+.meter{flex:1;text-align:center}
+.meter .m-label{font-size:10px;color:var(--text3);margin-bottom:6px}
+.meter .m-bar{height:6px;border-radius:3px;background:var(--surface3);overflow:hidden}
+.meter .m-fill{height:100%;border-radius:3px;transition:width .5s}
+.meter .m-val{font-size:14px;font-weight:800;margin-top:4px}
+
+.empty-msg{padding:20px;text-align:center;color:var(--text3);font-size:12px}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@media(max-width:900px){.panels{grid-template-columns:1fr}.status-bar{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>🦞</span> 实时监控中心</h1>
+  <div class="header-right">
+    <a href="/">← 总览面板</a>
+    <div class="action-group" id="quickActions"></div>
+    <span class="live-dot"></span>
+    <div class="refresh-info" id="refreshInfo">连接中...</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="status-bar" id="statusBar"></div>
+  <div class="panels">
+    <!-- 对话面板占整行，最重要 -->
+    <div class="panel full">
+      <div class="panel-head">
+        <h3>🧠 大龙虾思考过程 & 对话</h3>
+        <span class="sub" id="chatSub">读取中...</span>
+      </div>
+      <div class="chat-body" id="chatBody"></div>
+    </div>
+
+    <div class="panel" id="timelinePanel">
+      <div class="panel-head"><h3>💬 对话时间线</h3><span class="sub">请求 → 响应耗时</span></div>
+      <div class="panel-body" id="timeline"></div>
+    </div>
+    <div class="panel" id="systemPanel">
+      <div class="panel-head"><h3>📊 系统资源</h3><span class="sub" id="systemSub"></span></div>
+      <div class="panel-body" id="systemBody"></div>
+    </div>
+    <div class="panel full">
+      <div class="panel-head"><h3>📡 活动日志</h3><span class="sub">实时 Gateway 日志流</span></div>
+      <div class="panel-body" id="logStream" style="max-height:280px"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>🤖 Worker Bot 状态</h3></div>
+      <div class="panel-body" id="workers"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>⏰ 定时任务</h3></div>
+      <div class="panel-body" id="cronJobs"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let data = null;
+let convData = null;
+let expandedThink = {};
+let expandedReply = {};
+const BOT_NAMES = { leader: '大龙虾', qianwen: '全栈高手', kimi: '智囊团' };
+
+async function fetchData() {
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch('/api/monitor'),
+      fetch('/api/monitor/conversation?limit=20')
+    ]);
+    data = await r1.json();
+    convData = await r2.json();
+    render();
+  } catch(e) { console.error(e); }
+}
+
+function render() {
+  if (!data) return;
+  renderActionButtons();
+  renderStatusBar();
+  renderChat();
+  renderTimeline();
+  renderLogs();
+  renderSystem();
+  renderWorkers();
+  renderCron();
+  document.getElementById('refreshInfo').textContent = `${new Date().toLocaleTimeString('zh-CN')} · 5s 刷新`;
+}
+
+function renderActionButtons() {
+  document.getElementById('quickActions').innerHTML = `
+    <button class="restart-btn" onclick="restartBot('leader', event)">重启大龙虾</button>
+    <button class="restart-btn" onclick="restartBot('qianwen', event)">重启全栈高手</button>
+    <button class="restart-btn" onclick="restartBot('kimi', event)">重启智囊团</button>`;
+}
+
+async function restartBot(id, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const btn = event && event.currentTarget ? event.currentTarget : null;
+  if (btn && btn.disabled) return;
+  const name = BOT_NAMES[id] || id;
+  if (!confirm(`确认重启 ${name} 吗？\n当前任务可能会短暂中断。`)) return;
+  const oldText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '重启中...';
+  }
+  try {
+    const r = await fetch(`/api/bot/${id}/restart`, { method: 'POST' });
+    const result = await r.json().catch(() => ({}));
+    if (!r.ok || !result.ok) throw new Error(result.message || result.result?.stderr || '重启失败');
+    alert(result.message || `${name} 重启命令已发送`);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await fetchData();
+  } catch (e) {
+    alert(`重启失败：${e.message || e}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || `重启${name}`;
+    }
+  }
+}
+
+function renderStatusBar() {
+  const g = data.leader.gateway;
+  const p = data.leader.process;
+  const st = data.leader.currentStatus;
+  const stMap = {idle:'空闲',thinking:'思考中',streaming:'输出中',queued:'排队中'};
+  const stClass = st==='idle'?'ok':(st==='thinking'||st==='streaming')?'warn':'info';
+
+  document.getElementById('statusBar').innerHTML = `
+    <div class="status-card ${g.running?'ok':'err'}">
+      <div class="label">Gateway</div>
+      <div class="value">${g.running?'●':'✕'}</div>
+      <div class="sub">${g.running?'运行中 · '+g.latencyMs+'ms':'已停止'}</div>
+    </div>
+    <div class="status-card ${stClass}">
+      <div class="label">当前状态</div>
+      <div class="value" style="font-size:18px">${stMap[st]||st}</div>
+      <div class="sub">${data.leader.lastActivity?'最后活动 '+fmtTime(data.leader.lastActivity):''}</div>
+    </div>
+    <div class="status-card info">
+      <div class="label">进程</div>
+      <div class="value" style="font-size:16px">${p?'PID '+p.pid:'N/A'}</div>
+      <div class="sub">${p?'CPU '+p.cpu+'% · MEM '+p.mem+'%':'未检测到'}</div>
+    </div>
+    <div class="status-card ${data.system.memory.usedPct>80?'warn':'ok'}">
+      <div class="label">系统内存</div>
+      <div class="value">${data.system.memory.usedPct}%</div>
+      <div class="sub">${Math.round(data.system.memory.usedMB/1024*10)/10} / ${Math.round(data.system.memory.totalMB/1024)} GB</div>
+    </div>`;
+}
+
+function renderChat() {
+  if (!convData || !convData.messages || !convData.messages.length) {
+    document.getElementById('chatBody').innerHTML = '<div class="empty-msg">暂无对话记录</div>';
+    document.getElementById('chatSub').textContent = '无会话';
+    return;
+  }
+  const msgs = convData.messages;
+  document.getElementById('chatSub').textContent = `会话 ${convData.sessionId?.substring(0,8)}… · ${msgs.length} 条消息${convData.active?' · 活跃中':''}`;
+  const el = document.getElementById('chatBody');
+  const wasAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 50;
+
+  el.innerHTML = msgs.map((m, i) => {
+    const time = m.timestamp ? fmtTime(m.timestamp) : '';
+    if (m.role === 'user') {
+      const long = m.content.length > 300;
+      const collapsed = long && !expandedReply['u'+i];
+      return `<div class="chat-msg user">
+        <div class="chat-role">👤 用户 <span class="chat-time">${time}</span></div>
+        <div class="chat-text${collapsed?' collapsed':''}">${esc(m.content)}</div>
+        ${long?`<span class="chat-expand" onclick="toggleReply('u${i}',this)">${collapsed?'展开全文 ▼':'收起 ▲'}</span>`:''}
+      </div>`;
+    } else {
+      const hasThink = m.thinking && m.thinking.length > 0;
+      const thinkCollapsed = hasThink && !expandedThink[i];
+      const replyLong = m.content.length > 500;
+      const replyCollapsed = replyLong && !expandedReply['a'+i];
+      let thinkHtml = '';
+      if (hasThink) {
+        thinkHtml = `
+          <div class="think-label">💭 思考过程 <span class="chat-expand" onclick="toggleThink(${i},this)" style="margin-left:4px">${thinkCollapsed?'展开 ▼':'收起 ▲'}</span></div>
+          <div class="think-block${thinkCollapsed?' collapsed':''}" id="think-${i}">${esc(m.thinking)}</div>`;
+      }
+      return `<div class="chat-msg assistant">
+        <div class="chat-role">🦞 大龙虾 <span class="chat-time">${time}</span></div>
+        ${thinkHtml}
+        <div class="chat-text${replyCollapsed?' collapsed':''}">${esc(m.content)}</div>
+        ${replyLong?`<span class="chat-expand" onclick="toggleReply('a${i}',this)">${replyCollapsed?'展开全文 ▼':'收起 ▲'}</span>`:''}
+      </div>`;
+    }
+  }).join('');
+
+  if (wasAtBottom) el.scrollTop = el.scrollHeight;
+}
+
+function toggleThink(idx, el) {
+  expandedThink[idx] = !expandedThink[idx];
+  renderChat();
+}
+function toggleReply(key, el) {
+  expandedReply[key] = !expandedReply[key];
+  renderChat();
+}
+
+function renderTimeline() {
+  const tl = data.timeline || [];
+  if (!tl.length) { document.getElementById('timeline').innerHTML = '<div class="empty-msg">暂无对话记录</div>'; return; }
+  document.getElementById('timeline').innerHTML = tl.slice().reverse().map(t => {
+    const durClass = !t.durationSec ? '' : t.durationSec < 15 ? 'fast' : t.durationSec < 60 ? 'medium' : 'slow';
+    let durText;
+    if (t.durationSec != null) durText = t.durationSec + 's';
+    else if (t.status === 'thinking') durText = (t.elapsedSec ? t.elapsedSec + 's 思考中' : '思考中...');
+    else if (t.status === 'streaming') durText = (t.elapsedSec ? t.elapsedSec + 's 输出中' : '输出中...');
+    else durText = '等待';
+    const activeClass = (t.status === 'thinking' || t.status === 'streaming') ? ' active-msg' : '';
+    return `<div class="tl-entry${activeClass}">
+      <span class="tl-status ${t.status}"></span>
+      <span class="tl-msg" title="${esc(t.message||'')}">${esc(t.message||'')}</span>
+      <span class="tl-dur ${durClass}">${durText}</span>
+      <span class="tl-time">${fmtTime(t.receivedAt)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderLogs() {
+  const logs = data.logs || [];
+  const el = document.getElementById('logStream');
+  const wasAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+  const tagLabel = {incoming:'收到',processing:'处理',complete:'完成',streaming:'流式',stream_done:'结束',warn:'警告',error:'错误',system:'系统'};
+  el.innerHTML = logs.map(l => `<div class="log-entry">
+    <span class="log-time">${fmtTime(l.time)}</span>
+    <span class="log-tag ${l.type}">${tagLabel[l.type]||l.type}</span>
+    <span class="log-content">${esc(l.content)}</span>
+  </div>`).join('') || '<div class="empty-msg">暂无日志</div>';
+  if (wasAtBottom) el.scrollTop = el.scrollHeight;
+}
+
+function renderSystem() {
+  const s = data.system;
+  const cpuPct = Math.round(s.load[0] / s.cpuCores * 100);
+  const memPct = s.memory.usedPct;
+  const cpuColor = cpuPct > 80 ? 'var(--red)' : cpuPct > 50 ? 'var(--yellow)' : 'var(--green)';
+  const memColor = memPct > 80 ? 'var(--red)' : memPct > 60 ? 'var(--yellow)' : 'var(--green)';
+  document.getElementById('systemSub').textContent = `负载: ${s.load.join(' / ')} · ${s.cpuCores} 核`;
+  document.getElementById('systemBody').innerHTML = `
+    <div class="meter-row">
+      <div class="meter">
+        <div class="m-label">CPU 利用率</div>
+        <div class="m-bar"><div class="m-fill" style="width:${Math.min(cpuPct,100)}%;background:${cpuColor}"></div></div>
+        <div class="m-val" style="color:${cpuColor}">${cpuPct}%</div>
+      </div>
+      <div class="meter">
+        <div class="m-label">内存 (活跃+固定)</div>
+        <div class="m-bar"><div class="m-fill" style="width:${memPct}%;background:${memColor}"></div></div>
+        <div class="m-val" style="color:${memColor}">${memPct}%</div>
+      </div>
+    </div>
+    <div class="meter-row" style="padding-top:0">
+      <div class="meter">
+        <div class="m-label">活跃内存</div>
+        <div class="m-val" style="font-size:12px;color:var(--text2)">${Math.round(s.memory.active/1024*10)/10} GB</div>
+      </div>
+      <div class="meter">
+        <div class="m-label">已固定</div>
+        <div class="m-val" style="font-size:12px;color:var(--text2)">${Math.round(s.memory.wired/1024*10)/10} GB</div>
+      </div>
+      <div class="meter">
+        <div class="m-label">非活跃(可回收)</div>
+        <div class="m-val" style="font-size:12px;color:var(--text2)">${Math.round(s.memory.inactive/1024*10)/10} GB</div>
+      </div>
+      <div class="meter">
+        <div class="m-label">空闲</div>
+        <div class="m-val" style="font-size:12px;color:var(--text2)">${Math.round(s.memory.free/1024*10)/10} GB</div>
+      </div>
+    </div>`;
+}
+
+function renderWorkers() {
+  const ws = data.workers || [];
+  document.getElementById('workers').innerHTML = `<div class="worker-row">${ws.map(w => {
+    const on = w.running || w.state === 'running';
+    const poll = w.nextPoll ? fmtCountdown(w.nextPoll - Date.now()) : '--';
+    return `<div class="worker-card">
+      <span class="w-avatar">${w.avatar}</span>
+      <div class="w-info"><div class="w-name">${w.name}</div><div class="w-sub">${w.container}</div></div>
+      <div class="w-status">${`<button class="restart-btn compact" onclick="restartBot('${w.id}', event)">重启</button>`}<span class="w-dot ${on?'on':'off'}"></span>
+        <div class="w-poll" data-next="${w.nextPoll||''}">${on?'下次轮询: '+poll:'离线'}</div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderCron() {
+  const jobs = data.cronJobs || [];
+  document.getElementById('cronJobs').innerHTML = jobs.map(j => {
+    const on = j.enabled;
+    const next = j.nextRunAt ? fmtCountdown(j.nextRunAt - Date.now()) : '--';
+    return `<div class="cron-entry">
+      <span class="cron-dot ${on?'on':'off'}"></span>
+      <span class="cron-name">${j.name}</span>
+      <span class="cron-next" data-next="${j.nextRunAt||''}">${on?next:'已暂停'}</span>
+    </div>`;
+  }).join('') || '<div class="empty-msg">无定时任务</div>';
+}
+
+function tickCountdowns() {
+  document.querySelectorAll('.w-poll[data-next],.cron-next[data-next]').forEach(el => {
+    const next = parseInt(el.dataset.next, 10);
+    if (!next || isNaN(next)) return;
+    const remain = next - Date.now();
+    if (el.classList.contains('w-poll')) el.textContent = '下次轮询: ' + fmtCountdown(remain);
+    else el.textContent = fmtCountdown(remain);
+  });
+}
+
+function fmtTime(iso) {
+  if (!iso) return '--:--';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) {
+    if (typeof iso === 'number') return new Date(iso).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    return '--:--';
+  }
+  return d.toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+function fmtCountdown(ms) {
+  if (ms <= 0) return '即将';
+  const s = Math.floor(ms/1000);
+  const m = Math.floor(s/60);
+  if (m >= 60) return Math.floor(m/60)+'时'+String(m%60).padStart(2,'0')+'分';
+  return String(m).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+
+function esc(s) { if(!s)return''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+fetchData();
+setInterval(fetchData, 5000);
+setInterval(tickCountdowns, 1000);
+</script>
+</body>
+</html>

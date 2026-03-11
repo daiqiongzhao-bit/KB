@@ -1,0 +1,77 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.3.2"
+  },
+  "auth": {
+    "profiles": {
+      "coding-plan:default": {
+        "provider": "coding-plan",
+        "mode": "api_key"
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "coding-plan": {
+        "baseUrl": "https://coding.dashscope.aliyuncs.com/v1",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "kimi-k2.5",
+            "name": "Kimi K2.5",
+            "reasoning": true,
+            "input": ["text", "image"],
+            "cost": { "input": 0.45, "output": 2.2, "cacheRead": 0.05, "cacheWrite": 0.22 },
+            "contextWindow": 262144,
+            "maxTokens": 16384
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "coding-plan/kimi-k2.5"
+      },
+      "thinkingDefault": "medium",
+      "workspace": "/home/node/.openclaw/workspace",
+      "compaction": { "mode": "safeguard" },
+      "maxConcurrent": 1,
+      "subagents": { "maxConcurrent": 2 }
+    }
+  },
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "renderMode": "auto",
+      "accounts": {
+        "default": {
+          "appId": "cli_a9224977194c9bd7",
+          "appSecret": "hXRHi3U2QFScLxODZkRKFgaaQ4aCZz0p"
+        }
+      }
+    }
+  },
+  "tools": {
+    "web": {
+      "fetch": {
+        "enabled": true
+      }
+    }
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto"
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "kimi-worker-token-auto"
+    }
+  }
+}
