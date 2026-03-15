@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Team 调度中心 · 账号管理</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0b1020;--bg2:#10182e;--surface:rgba(15,23,42,.86);--surface2:rgba(30,41,59,.75);--border:rgba(148,163,184,.14);--text:#e6eefb;--muted:#94a3b8;--cyan:#22d3ee;--blue:#60a5fa;--green:#34d399;--orange:#fb923c;--red:#fb7185;--shadow:0 20px 60px rgba(0,0,0,.28)}
+body{min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;color:var(--text);background:radial-gradient(circle at top left,#172554 0%,transparent 35%),radial-gradient(circle at top right,#134e4a 0%,transparent 28%),linear-gradient(135deg,var(--bg),var(--bg2));padding:24px}
+.wrap{max-width:1280px;margin:0 auto}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}
+.title h1{font-size:30px;letter-spacing:-.03em}.title p{margin-top:8px;color:var(--muted);font-size:14px}
+.actions{display:flex;gap:10px;flex-wrap:wrap}
+.btn,.ghost,.danger{border:none;border-radius:14px;padding:12px 16px;font-size:14px;font-weight:700;cursor:pointer;transition:.14s}
+.btn{background:linear-gradient(135deg,var(--blue),var(--cyan));color:#05121f;box-shadow:0 10px 28px rgba(34,211,238,.18)}
+.ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.danger{background:rgba(251,113,133,.12);color:var(--red);border:1px solid rgba(251,113,133,.2)}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:24px;box-shadow:var(--shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.grid{display:grid;grid-template-columns:380px 1fr;gap:22px}.card{padding:22px}.card h2{font-size:20px;margin-bottom:8px}.card p{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:18px}
+.form{display:grid;gap:14px}.label{display:block;font-size:12px;color:var(--muted);margin-bottom:7px}
+.input,.select{width:100%;padding:13px 14px;border-radius:14px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.75);color:var(--text);outline:none;font-size:14px}
+.input:focus,.select:focus{border-color:rgba(96,165,250,.6);box-shadow:0 0 0 4px rgba(96,165,250,.12)}
+.msg{min-height:20px;font-size:13px}.msg.ok{color:var(--green)}.msg.err{color:var(--red)}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:720px}th,td{text-align:left;padding:16px 14px;border-bottom:1px solid rgba(148,163,184,.1);font-size:14px}th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}tr:hover td{background:rgba(148,163,184,.03)}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700}.badge.admin{background:rgba(34,211,238,.12);color:var(--cyan)}.badge.user{background:rgba(96,165,250,.12);color:var(--blue)}.badge.on{background:rgba(52,211,153,.12);color:var(--green)}.badge.off{background:rgba(251,113,133,.12);color:var(--red)}
+.inline-actions{display:flex;gap:8px;flex-wrap:wrap}.mini{padding:8px 12px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px;font-weight:700}.mini.warn{color:var(--orange)}.mini.red{color:var(--red);border-color:rgba(251,113,133,.2);background:rgba(251,113,133,.08)}
+.me{padding:16px 18px;border-radius:18px;background:var(--surface2);border:1px solid var(--border);margin-bottom:16px;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.dim{color:var(--muted);font-size:13px}
+@media(max-width:980px){.grid{grid-template-columns:1fr}.top{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="title">
+      <h1>账号管理</h1>
+      <p>管理 Dashboard 登录账号、密码和权限。默认只有管理员可访问。</p>
+    </div>
+    <div class="actions">
+      <button class="ghost" onclick="location.href='/'">返回总览</button>
+      <button class="danger" onclick="logout()">退出登录</button>
+    </div>
+  </div>
+
+  <div class="me panel card" id="meBox">加载中...</div>
+
+  <div class="panel card" style="margin-bottom:16px">
+    <h2>修改我自己的密码</h2>
+    <p>这个入口是给当前登录账号自己改密码用的，不用绕去改账号表。</p>
+    <form class="form" id="selfPwdForm" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end">
+      <div>
+        <label class="label">新密码</label>
+        <input class="input" name="password" type="password" placeholder="至少 6 位" required />
+      </div>
+      <div>
+        <label class="label">确认新密码</label>
+        <input class="input" name="password2" type="password" placeholder="再输一遍" required />
+      </div>
+      <div>
+        <button class="btn" id="selfPwdBtn" type="submit" style="width:100%">修改我的密码</button>
+      </div>
+      <div id="selfPwdMsg" class="msg" style="grid-column:1/-1"></div>
+    </form>
+  </div>
+
+  <div class="grid">
+    <section class="panel card">
+      <h2>新增账号</h2>
+      <p>创建新的登录账号。建议给共享查看人员单独账号，不要共用管理员密码。</p>
+      <form class="form" id="createForm">
+        <div>
+          <label class="label">账号名</label>
+          <input class="input" name="username" placeholder="例如 admin / viewer" required />
+        </div>
+        <div>
+          <label class="label">显示名</label>
+          <input class="input" name="displayName" placeholder="例如 照哥 / 运维" />
+        </div>
+        <div>
+          <label class="label">角色</label>
+          <select class="select" name="role">
+            <option value="admin">管理员</option>
+            <option value="user">普通账号</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">初始密码</label>
+          <input class="input" name="password" type="password" placeholder="至少 6 位" required />
+        </div>
+        <button class="btn" id="createBtn" type="submit">创建账号</button>
+        <div id="createMsg" class="msg"></div>
+      </form>
+    </section>
+
+    <section class="panel card">
+      <h2>现有账号</h2>
+      <p>可以改密码、启用/停用账号。不能删除当前正在登录的自己。</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>账号</th>
+              <th>角色</th>
+              <th>状态</th>
+              <th>最近登录</th>
+              <th>创建时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="6" class="dim">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+let me=null;let accounts=[];
+function fmt(v){if(!v)return '—';const d=new Date(v);if(Number.isNaN(d.getTime()))return '—';return d.toLocaleString('zh-CN',{hour12:false});}
+function esc(s){return (s||'').replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+async function api(url,options={}){const r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'请求失败');return data;}
+async function load(){
+  const mine=await api('/api/auth/me');me=mine.user;
+  if(me.mustChangePassword){location.href='/login.html?next=%2Faccounts.html';return;}
+  const data=await api('/api/accounts');accounts=data.accounts||[];
+  renderMe();renderRows();
+}
+function renderMe(){
+  document.getElementById('meBox').innerHTML=`<div><div style="font-size:18px;font-weight:800">${esc(me.displayName||me.username)}</div><div class="dim">当前登录：${esc(me.username)} · ${me.role==='admin'?'管理员':'普通账号'}</div></div><div class="dim">最近登录：${fmt(me.lastLoginAt)}</div>`;
+}
+function renderRows(){
+  const tbody=document.getElementById('rows');
+  if(!accounts.length){tbody.innerHTML='<tr><td colspan="6" class="dim">暂无账号</td></tr>';return;}
+  tbody.innerHTML=accounts.map(a=>`<tr>
+    <td><div style="font-weight:700">${esc(a.displayName||a.username)}</div><div class="dim">${esc(a.username)}</div></td>
+    <td><span class="badge ${a.role==='admin'?'admin':'user'}">${a.role==='admin'?'管理员':'普通账号'}</span></td>
+    <td><span class="badge ${a.enabled?'on':'off'}">${a.enabled?'启用':'停用'}</span></td>
+    <td>${fmt(a.lastLoginAt)}</td>
+    <td>${fmt(a.createdAt)}</td>
+    <td>
+      <div class="inline-actions">
+        <button class="mini" onclick="changePassword('${a.id}','${esc(a.username)}')">改密码</button>
+        <button class="mini warn" onclick="toggleEnabled('${a.id}',${a.enabled})">${a.enabled?'停用':'启用'}</button>
+        ${a.id!==me.id?`<button class="mini red" onclick="removeAccount('${a.id}','${esc(a.username)}')">删除</button>`:''}
+      </div>
+    </td>
+  </tr>`).join('');
+}
+async function logout(){try{await api('/api/auth/logout',{method:'POST'});}catch{}location.href='/login.html';}
+async function toggleEnabled(id,current){
+  if(!confirm(current?'确认停用这个账号？':'确认启用这个账号？'))return;
+  await api('/api/accounts/'+id,{method:'PATCH',body:JSON.stringify({enabled:!current})});
+  await load();
+}
+async function changePassword(id,username){
+  const pwd=prompt('给账号 '+username+' 设置新密码（至少 6 位）');
+  if(pwd==null)return;
+  if(pwd.length<6){alert('密码至少 6 位');return;}
+  await api('/api/accounts/'+id+'/password',{method:'PATCH',body:JSON.stringify({password:pwd})});
+  alert('密码已更新');
+}
+async function removeAccount(id,username){
+  if(!confirm('确认删除账号 '+username+' ？此操作不可恢复。'))return;
+  await api('/api/accounts/'+id,{method:'DELETE'});
+  await load();
+}
+document.getElementById('createForm').addEventListener('submit',async(e)=>{
+  e.preventDefault();
+  const form=e.currentTarget;const msg=document.getElementById('createMsg');const btn=document.getElementById('createBtn');
+  msg.textContent='';msg.className='msg';btn.disabled=true;btn.textContent='创建中...';
+  try{
+    const payload={username:form.username.value.trim(),displayName:form.displayName.value.trim(),role:form.role.value,password:form.password.value};
+    await api('/api/accounts',{method:'POST',body:JSON.stringify(payload)});
+    form.reset();msg.textContent='创建成功';msg.className='msg ok';await load();
+  }catch(err){msg.textContent=err.message||'创建失败';msg.className='msg err';}
+  finally{btn.disabled=false;btn.textContent='创建账号';}
+});
+document.getElementById('selfPwdForm').addEventListener('submit',async(e)=>{
+  e.preventDefault();
+  const form=e.currentTarget;const msg=document.getElementById('selfPwdMsg');const btn=document.getElementById('selfPwdBtn');
+  const p1=form.password.value;const p2=form.password2.value;
+  msg.textContent='';msg.className='msg';
+  if(p1.length<6){msg.textContent='密码至少 6 位';msg.className='msg err';return;}
+  if(p1!==p2){msg.textContent='两次输入不一致';msg.className='msg err';return;}
+  btn.disabled=true;btn.textContent='保存中...';
+  try{
+    await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({password:p1})});
+    form.reset();msg.textContent='我的密码已更新';msg.className='msg ok';await load();
+  }catch(err){msg.textContent=err.message||'修改失败';msg.className='msg err';}
+  finally{btn.disabled=false;btn.textContent='修改我的密码';}
+});
+load().catch(err=>{alert(err.message||'加载失败');if(/未登录|权限/.test(err.message||''))location.href='/login.html?next=%2Faccounts.html';});
+</script>
+</body>
+</html>

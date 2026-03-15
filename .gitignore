@@ -1,6 +1,9 @@
 # ==================== 敏感信息文件 ====================
 # 包含 Token、密钥等敏感信息，不应提交到 Git
 config.json
+/dashboard/config.json
+/dashboard/data/
+/dashboard/config.json.bak.*
 *.env
 *.pem
 *.key

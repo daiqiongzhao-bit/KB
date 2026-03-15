@@ -624,6 +624,8 @@ body.app-mode .header{
   <div class="header-right">
     <div class="stats-bar" id="globalStats"></div>
     <span class="live-dot"></span>
+    <button class="layout-btn" onclick="location.href='/accounts.html'" id="accountsBtn" title="账号管理">👤</button>
+    <button class="layout-btn" onclick="logout()" id="logoutBtn" title="退出登录">↗</button>
     <button class="layout-btn" onclick="toggleLayoutMode()" id="layoutBtn" title="切换布局">💻</button>
     <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
     <div class="refresh-info" id="refreshInfo">加载中...</div>
@@ -2250,14 +2252,38 @@ initTheme();
   }).observe(document.body,{childList:true,subtree:true});
 })();
 
+async function logout(){
+  try{await fetch('/api/auth/logout',{method:'POST',credentials:'same-origin'});}catch{}
+  location.href='/login.html';
+}
+
+async function ensureAuth(){
+  try{
+    const r=await fetch('/api/auth/me',{credentials:'same-origin'});
+    if(r.status===401){location.href='/login.html?next='+encodeURIComponent(location.pathname+location.search);return false;}
+    const data=await r.json().catch(()=>({}));
+    if(data?.user?.mustChangePassword){location.href='/login.html?next='+encodeURIComponent(location.pathname+location.search);return false;}
+    if(data?.user?.role!=='admin'){
+      const btn=document.getElementById('accountsBtn');
+      if(btn)btn.style.display='none';
+    }
+    return true;
+  }catch{
+    location.href='/login.html?next='+encodeURIComponent(location.pathname+location.search);return false;
+  }
+}
+
 // Boot
-if(isAppMode()) showAppOverviewFramework();
-else showOverviewFramework();
-fetchOverview(true);
-if('requestIdleCallback' in window) requestIdleCallback(()=>fetchOverview(false));
-else setTimeout(()=>fetchOverview(false),300);
-ovTimer=setInterval(fetchOverview,30000);
-setInterval(tickAll,1000);
+ensureAuth().then((ok)=>{
+  if(!ok)return;
+  if(isAppMode()) showAppOverviewFramework();
+  else showOverviewFramework();
+  fetchOverview(true);
+  if('requestIdleCallback' in window) requestIdleCallback(()=>fetchOverview(false));
+  else setTimeout(()=>fetchOverview(false),300);
+  ovTimer=setInterval(fetchOverview,30000);
+  setInterval(tickAll,1000);
+});
 </script>
 </body>
 </html>

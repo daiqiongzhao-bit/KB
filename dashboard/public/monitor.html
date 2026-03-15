@@ -137,6 +137,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-
   <h1><span>🦞</span> 实时监控中心</h1>
   <div class="header-right">
     <a href="/">← 总览面板</a>
+    <a href="/accounts.html">账号管理</a>
+    <a href="#" onclick="logout();return false;">退出登录</a>
     <div class="action-group" id="quickActions"></div>
     <span class="live-dot"></span>
     <div class="refresh-info" id="refreshInfo">连接中...</div>
@@ -462,9 +464,35 @@ function fmtCountdown(ms) {
 
 function esc(s) { if(!s)return''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
-fetchData();
-setInterval(fetchData, 5000);
-setInterval(tickCountdowns, 1000);
+async function logout(){
+  try{await fetch('/api/auth/logout',{method:'POST',credentials:'same-origin'});}catch{}
+  location.href='/login.html';
+}
+
+async function ensureAuth(){
+  try{
+    const r=await fetch('/api/auth/me',{credentials:'same-origin'});
+    if(r.status===401){location.href='/login.html?next='+encodeURIComponent(location.pathname+location.search);return false;}
+    const data=await r.json().catch(()=>({}));
+    if(data?.user?.mustChangePassword){location.href='/login.html?next='+encodeURIComponent(location.pathname+location.search);return false;}
+    if(data?.user?.role!=='admin'){
+      document.querySelectorAll('.restart-btn').forEach(el=>el.style.display='none');
+      const links=[...document.querySelectorAll('.header-right a')];
+      const accountLink=links.find(a=>a.getAttribute('href')==='/accounts.html');
+      if(accountLink)accountLink.style.display='none';
+    }
+    return true;
+  }catch{
+    location.href='/login.html?next='+encodeURIComponent(location.pathname+location.search);return false;
+  }
+}
+
+ensureAuth().then(ok=>{
+  if(!ok)return;
+  fetchData();
+  setInterval(fetchData, 5000);
+  setInterval(tickCountdowns, 1000);
+});
 </script>
 </body>
 </html>

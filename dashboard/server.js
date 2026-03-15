@@ -3,6 +3,7 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 
 const app = express();
 
@@ -15,6 +16,16 @@ const LOG_FILE = path.join(HOME, '.openclaw/logs/gateway.log');
 const DASHBOARD_LOG_DIR = path.join(__dirname, 'logs');
 const DASHBOARD_LOG_FILE = path.join(DASHBOARD_LOG_DIR, 'dashboard.log');
 const DASHBOARD_CACHE_DIR = path.join(__dirname, '.cache');
+const DASHBOARD_DATA_DIR = path.join(__dirname, 'data');
+const AUTH_FILE = path.join(DASHBOARD_DATA_DIR, 'accounts.json');
+const SESSION_COOKIE = 'ai_team_dashboard_session';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const SESSION_STORE_FILE = path.join(DASHBOARD_DATA_DIR, 'sessions.json');
+const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_ATTEMPT_LIMIT = 8;
+const LOGIN_BLOCK_MS = 15 * 60 * 1000;
+const sessions = new Map();
+const loginAttempts = new Map();
 
 // 日志配置（先设置默认值，后面从配置文件读取）
 let LOGGING_CONFIG = {
@@ -41,6 +52,9 @@ if (!fs.existsSync(DASHBOARD_LOG_DIR)) {
 // 确保缓存目录存在
 if (!fs.existsSync(DASHBOARD_CACHE_DIR)) {
   fs.mkdirSync(DASHBOARD_CACHE_DIR, { recursive: true });
+}
+if (!fs.existsSync(DASHBOARD_DATA_DIR)) {
+  fs.mkdirSync(DASHBOARD_DATA_DIR, { recursive: true });
 }
 
 // 日志级别颜色
@@ -200,6 +214,253 @@ const GITHUB_OWNER = userConfig.github?.owner || 'your-github-username';
 const TASK_REPO = userConfig.github?.taskRepo || `${GITHUB_OWNER}/ai-team-tasks`;
 const PORT = userConfig.dashboard?.port || 3800;
 const POLL_INTERVAL = userConfig.pollInterval || 5;
+const GITHUB_TOKEN = String(process.env.GITHUB_TOKEN || userConfig.github?.token || '').trim();
+const GH_ENV_PREFIX = GITHUB_TOKEN ? `GH_TOKEN=${JSON.stringify(GITHUB_TOKEN)} ` : '';
+
+function getDockerComposeCmd() {
+  const v2 = exec('docker compose version');
+  if (v2 && !/not a docker command/i.test(v2)) return 'docker compose';
+  const v1 = exec('docker-compose --version');
+  if (v1) return 'docker-compose';
+  return 'docker compose';
+}
+const DOCKER_COMPOSE_CMD = getDockerComposeCmd();
+
+function parseCookies(req) {
+  const header = req.headers.cookie || '';
+  const out = {};
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    const val = part.slice(idx + 1).trim();
+    out[key] = decodeURIComponent(val);
+  }
+  return out;
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  return { salt, hash };
+}
+
+function verifyPassword(password, salt, hash) {
+  const test = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(test, 'hex'), Buffer.from(hash, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+function normalizeUsername(username) {
+  return String(username || '').trim().toLowerCase();
+}
+
+function sanitizeAccount(account) {
+  return {
+    id: account.id,
+    username: account.username,
+    displayName: account.displayName || account.username,
+    role: account.role || 'user',
+    enabled: account.enabled !== false,
+    mustChangePassword: account.mustChangePassword === true,
+    createdAt: account.createdAt || null,
+    updatedAt: account.updatedAt || null,
+    lastLoginAt: account.lastLoginAt || null,
+  };
+}
+
+function loadAccountsStore() {
+  try {
+    if (!fs.existsSync(AUTH_FILE)) return { accounts: [] };
+    const data = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
+    if (!Array.isArray(data.accounts)) return { accounts: [] };
+    return { accounts: data.accounts };
+  } catch {
+    return { accounts: [] };
+  }
+}
+
+function saveAccountsStore(store) {
+  fs.writeFileSync(AUTH_FILE, JSON.stringify({ accounts: store.accounts }, null, 2), 'utf-8');
+}
+
+function saveSessionStore() {
+  try {
+    const entries = [];
+    for (const [token, session] of sessions.entries()) {
+      if (session.expiresAt > Date.now()) entries.push({ token, ...session });
+    }
+    fs.writeFileSync(SESSION_STORE_FILE, JSON.stringify({ sessions: entries }, null, 2), 'utf-8');
+  } catch {}
+}
+
+function loadSessionStore() {
+  try {
+    if (!fs.existsSync(SESSION_STORE_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(SESSION_STORE_FILE, 'utf-8'));
+    for (const item of raw.sessions || []) {
+      if (item.token && item.expiresAt && item.expiresAt > Date.now()) {
+        sessions.set(item.token, { accountId: item.accountId, expiresAt: item.expiresAt });
+      }
+    }
+  } catch {}
+}
+
+function getRequestIp(req) {
+  return String(req.headers['x-forwarded-for'] || req.ip || req.connection?.remoteAddress || 'unknown').split(',')[0].trim();
+}
+
+function checkLoginRateLimit(req, username) {
+  const key = `${getRequestIp(req)}:${normalizeUsername(username || '')}`;
+  const now = Date.now();
+  const item = loginAttempts.get(key);
+  if (!item) return { allowed: true, key };
+  if (item.blockedUntil && item.blockedUntil > now) {
+    return { allowed: false, key, retryAfterMs: item.blockedUntil - now };
+  }
+  if (item.firstAt && now - item.firstAt > LOGIN_ATTEMPT_WINDOW_MS) {
+    loginAttempts.delete(key);
+    return { allowed: true, key };
+  }
+  return { allowed: true, key };
+}
+
+function recordLoginFailure(key) {
+  const now = Date.now();
+  const item = loginAttempts.get(key);
+  if (!item || now - item.firstAt > LOGIN_ATTEMPT_WINDOW_MS) {
+    loginAttempts.set(key, { count: 1, firstAt: now, blockedUntil: 0 });
+    return;
+  }
+  item.count += 1;
+  if (item.count >= LOGIN_ATTEMPT_LIMIT) item.blockedUntil = now + LOGIN_BLOCK_MS;
+  loginAttempts.set(key, item);
+}
+
+function clearLoginFailures(key) {
+  loginAttempts.delete(key);
+}
+
+function ensureDefaultAdmin() {
+  const store = loadAccountsStore();
+  const authCfg = userConfig.dashboard?.auth || {};
+  const configuredUser = normalizeUsername(authCfg.defaultAdmin?.username || 'admin');
+  const configuredPassword = String(authCfg.defaultAdmin?.password || 'admin123456');
+  const configuredDisplayName = authCfg.defaultAdmin?.displayName || '管理员';
+  const forceChange = authCfg.forceChangeDefaultPassword !== false;
+
+  if (store.accounts.length === 0) {
+    const { salt, hash } = hashPassword(configuredPassword);
+    const now = new Date().toISOString();
+    const admin = {
+      id: crypto.randomUUID(),
+      username: configuredUser,
+      displayName: configuredDisplayName,
+      role: 'admin',
+      enabled: true,
+      mustChangePassword: forceChange,
+      passwordSalt: salt,
+      passwordHash: hash,
+      createdAt: now,
+      updatedAt: now,
+      lastLoginAt: null,
+    };
+    store.accounts.push(admin);
+    saveAccountsStore(store);
+    logger.warn('鉴权', '未检测到账号，已自动创建默认管理员', { username: configuredUser, password: configuredPassword, mustChangePassword: forceChange });
+    return store;
+  }
+
+  let changed = false;
+  for (const account of store.accounts) {
+    if (typeof account.mustChangePassword !== 'boolean') {
+      account.mustChangePassword = false;
+      changed = true;
+    }
+  }
+  const defaultAdmin = store.accounts.find(a => normalizeUsername(a.username) === configuredUser && a.role === 'admin');
+  if (defaultAdmin && defaultAdmin.lastLoginAt == null && forceChange && defaultAdmin.mustChangePassword !== true) {
+    defaultAdmin.mustChangePassword = true;
+    changed = true;
+  }
+  if (changed) saveAccountsStore(store);
+  return store;
+}
+
+function findAccountByUsername(username) {
+  const store = ensureDefaultAdmin();
+  const key = normalizeUsername(username);
+  return store.accounts.find(a => normalizeUsername(a.username) === key) || null;
+}
+
+function findAccountById(id) {
+  const store = ensureDefaultAdmin();
+  return store.accounts.find(a => a.id === id) || null;
+}
+
+function writeAuthCookie(res, token) {
+  const secure = !!(userConfig.dashboard?.auth?.secureCookie);
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+  ];
+  if (secure) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+function clearAuthCookie(res) {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
+function createSession(res, account) {
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(token, { accountId: account.id, expiresAt: Date.now() + SESSION_TTL_MS });
+  saveSessionStore();
+  writeAuthCookie(res, token);
+  return token;
+}
+
+function getSessionAccount(req) {
+  const cookies = parseCookies(req);
+  const token = cookies[SESSION_COOKIE];
+  if (!token) return null;
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (session.expiresAt < Date.now()) {
+    sessions.delete(token);
+    saveSessionStore();
+    return null;
+  }
+  const account = findAccountById(session.accountId);
+  if (!account || account.enabled === false) {
+    sessions.delete(token);
+    saveSessionStore();
+    return null;
+  }
+  session.expiresAt = Date.now() + SESSION_TTL_MS;
+  saveSessionStore();
+  return { token, account };
+}
+
+function requireAuth(req, res, next) {
+  const session = getSessionAccount(req);
+  if (!session) return res.status(401).json({ error: '未登录' });
+  req.auth = session;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  const session = getSessionAccount(req);
+  if (!session) return res.status(401).json({ error: '未登录' });
+  if (session.account.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+  req.auth = session;
+  next();
+}
 
 logger.info('配置', 'Bot 配置初始化完成', {
   githubOwner: GITHUB_OWNER,
@@ -291,7 +552,7 @@ function restartBot(bot) {
 function getDockerStatus() {
   const timer = perf('Docker', 'getDockerStatus');
   const composeDir = path.join(__dirname, '..');
-  const raw = exec(`docker compose -f "${composeDir}/docker-compose.yml" ps --format json ${DEVNULL}`);
+  const raw = exec(`${DOCKER_COMPOSE_CMD} -f "${composeDir}/docker-compose.yml" ps --format json ${DEVNULL}`);
   if (!raw) {
     logger.warn('Docker', 'Docker 状态获取失败或无容器运行');
     return {};
@@ -373,7 +634,7 @@ function refreshGitHubIssues(limit) {
   
   const timer = perf('GitHub', 'getGitHubIssues');
   const q = IS_WIN ? '"."' : "'.'";
-  const raw = exec(`gh issue list -R ${TASK_REPO} --state all --limit ${limit} --json number,title,body,labels,state,createdAt,updatedAt,comments -q ${q} ${DEVNULL}`);
+  const raw = exec(`${GH_ENV_PREFIX}gh issue list -R ${TASK_REPO} --state all --limit ${limit} --json number,title,body,labels,state,createdAt,updatedAt,comments -q ${q} ${DEVNULL}`);
   if (!raw) {
     logger.warn('GitHub', 'Issues 获取失败，返回缓存', { repo: TASK_REPO });
     return CACHE.issues || [];
@@ -441,7 +702,7 @@ function refreshRepoCommits(repoFullName, limit, cacheKey, diskKey) {
   const cached = CACHE.commits.get(cacheKey);
   
   const timer = perf('GitHub', `getRepoCommits [${repoFullName}]`);
-  const raw = exec(`gh api repos/${repoFullName}/commits?per_page=${limit} ${DEVNULL}`);
+  const raw = exec(`${GH_ENV_PREFIX}gh api repos/${repoFullName}/commits?per_page=${limit} ${DEVNULL}`);
   if (!raw) {
     logger.warn('GitHub', `Commits 获取失败 [${repoFullName}]`);
     return cached ? cached.data : [];
@@ -493,7 +754,7 @@ function getRepoSkills(repoFullName) {
 function refreshRepoSkills(repoFullName, diskKey) {
   const cached = CACHE.skills.get(repoFullName);
   
-  const raw = exec(`gh api repos/${repoFullName}/contents ${DEVNULL}`);
+  const raw = exec(`${GH_ENV_PREFIX}gh api repos/${repoFullName}/contents ${DEVNULL}`);
   if (!raw) return cached ? cached.data : [];
   try {
     const data = JSON.parse(raw);
@@ -766,6 +1027,8 @@ function getSystemLoad() {
 
 // ════════════════ 请求日志中间件 ════════════════
 logger.info('中间件', '初始化请求日志中间件');
+loadSessionStore();
+app.use(express.json());
 app.use((req, res, next) => {
   const start = Date.now();
   const originalSend = res.send;
@@ -789,6 +1052,157 @@ app.use((req, res, next) => {
     return originalSend.call(this, data);
   };
   
+  next();
+});
+
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const username = normalizeUsername(req.body?.username);
+  const password = String(req.body?.password || '');
+  if (!username || !password) return res.status(400).json({ ok: false, error: '账号和密码不能为空' });
+  const rl = checkLoginRateLimit(req, username);
+  if (!rl.allowed) return res.status(429).json({ ok: false, error: `登录失败次数过多，请 ${Math.ceil((rl.retryAfterMs || 0)/60000)} 分钟后再试` });
+  const account = findAccountByUsername(username);
+  if (!account || account.enabled === false) { recordLoginFailure(rl.key); return res.status(401).json({ ok: false, error: '账号不存在或已停用' }); }
+  if (!verifyPassword(password, account.passwordSalt, account.passwordHash)) {
+    recordLoginFailure(rl.key);
+    return res.status(401).json({ ok: false, error: '账号或密码错误' });
+  }
+  clearLoginFailures(rl.key);
+  account.lastLoginAt = new Date().toISOString();
+  account.updatedAt = account.lastLoginAt;
+  const store = ensureDefaultAdmin();
+  const idx = store.accounts.findIndex(a => a.id === account.id);
+  if (idx !== -1) {
+    store.accounts[idx] = account;
+    saveAccountsStore(store);
+  }
+  createSession(res, account);
+  res.json({ ok: true, user: sanitizeAccount(account), mustChangePassword: account.mustChangePassword === true });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const cookies = parseCookies(req);
+  const token = cookies[SESSION_COOKIE];
+  if (token) { sessions.delete(token); saveSessionStore(); }
+  clearAuthCookie(res);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json({ ok: true, user: sanitizeAccount(req.auth.account) });
+});
+
+app.get('/api/accounts', requireAdmin, (req, res) => {
+  const store = ensureDefaultAdmin();
+  res.json({ ok: true, accounts: store.accounts.map(sanitizeAccount) });
+});
+
+app.post('/api/accounts', requireAdmin, (req, res) => {
+  const username = normalizeUsername(req.body?.username);
+  const displayName = String(req.body?.displayName || '').trim();
+  const password = String(req.body?.password || '');
+  const role = req.body?.role === 'admin' ? 'admin' : 'user';
+  if (!username) return res.status(400).json({ error: '账号名不能为空' });
+  if (!/^[a-zA-Z0-9_.-]{3,32}$/.test(username)) return res.status(400).json({ error: '账号名需为 3-32 位字母数字或 ._- 组合' });
+  if (password.length < 6) return res.status(400).json({ error: '密码至少 6 位' });
+  const store = ensureDefaultAdmin();
+  if (store.accounts.some(a => normalizeUsername(a.username) === username)) return res.status(409).json({ error: '账号已存在' });
+  const { salt, hash } = hashPassword(password);
+  const now = new Date().toISOString();
+  const account = {
+    id: crypto.randomUUID(), username, displayName: displayName || username, role, enabled: true,
+    passwordSalt: salt, passwordHash: hash, createdAt: now, updatedAt: now, lastLoginAt: null,
+  };
+  store.accounts.push(account);
+  saveAccountsStore(store);
+  res.json({ ok: true, account: sanitizeAccount(account) });
+});
+
+app.patch('/api/accounts/:id', requireAdmin, (req, res) => {
+  const store = ensureDefaultAdmin();
+  const idx = store.accounts.findIndex(a => a.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: '账号不存在' });
+  const current = store.accounts[idx];
+  if (typeof req.body?.enabled === 'boolean') {
+    if (current.id === req.auth.account.id && req.body.enabled === false) {
+      return res.status(400).json({ error: '不能停用当前登录账号' });
+    }
+    current.enabled = req.body.enabled;
+  }
+  if (typeof req.body?.displayName === 'string') current.displayName = req.body.displayName.trim() || current.username;
+  if (req.body?.role) current.role = req.body.role === 'admin' ? 'admin' : 'user';
+  current.updatedAt = new Date().toISOString();
+  store.accounts[idx] = current;
+  saveAccountsStore(store);
+  res.json({ ok: true, account: sanitizeAccount(current) });
+});
+
+app.patch('/api/accounts/:id/password', requireAdmin, (req, res) => {
+  const password = String(req.body?.password || '');
+  if (password.length < 6) return res.status(400).json({ error: '密码至少 6 位' });
+  const store = ensureDefaultAdmin();
+  const idx = store.accounts.findIndex(a => a.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: '账号不存在' });
+  const current = store.accounts[idx];
+  const { salt, hash } = hashPassword(password);
+  current.passwordSalt = salt;
+  current.passwordHash = hash;
+  current.mustChangePassword = false;
+  current.updatedAt = new Date().toISOString();
+  store.accounts[idx] = current;
+  saveAccountsStore(store);
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/change-password', requireAuth, (req, res) => {
+  const password = String(req.body?.password || '');
+  if (password.length < 6) return res.status(400).json({ error: '密码至少 6 位' });
+  const store = ensureDefaultAdmin();
+  const idx = store.accounts.findIndex(a => a.id === req.auth.account.id);
+  if (idx === -1) return res.status(404).json({ error: '账号不存在' });
+  const current = store.accounts[idx];
+  const { salt, hash } = hashPassword(password);
+  current.passwordSalt = salt;
+  current.passwordHash = hash;
+  current.mustChangePassword = false;
+  current.updatedAt = new Date().toISOString();
+  store.accounts[idx] = current;
+  saveAccountsStore(store);
+  res.json({ ok: true, user: sanitizeAccount(current) });
+});
+
+app.delete('/api/accounts/:id', requireAdmin, (req, res) => {
+  const store = ensureDefaultAdmin();
+  const idx = store.accounts.findIndex(a => a.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: '账号不存在' });
+  const target = store.accounts[idx];
+  if (target.id === req.auth.account.id) return res.status(400).json({ error: '不能删除当前登录账号' });
+  store.accounts.splice(idx, 1);
+  saveAccountsStore(store);
+  for (const [token, session] of sessions.entries()) {
+    if (session.accountId === target.id) sessions.delete(token);
+  }
+  saveSessionStore();
+  res.json({ ok: true });
+});
+
+app.use((req, res, next) => {
+  const publicPaths = new Set(['/login', '/login.html', '/api/auth/login']);
+  if (publicPaths.has(req.path)) return next();
+  if (req.path.startsWith('/api/auth/')) return next();
+  if (req.path.startsWith('/api/')) {
+    const session = getSessionAccount(req);
+    if (!session) return res.status(401).json({ error: '未登录' });
+    req.auth = session;
+    return next();
+  }
+  const session = getSessionAccount(req);
+  if (!session) return res.redirect(`/login.html?next=${encodeURIComponent(req.originalUrl || '/')}`);
+  req.auth = session;
   next();
 });
 
@@ -1682,7 +2096,7 @@ app.get('/api/bot/:id/logs', (req, res) => {
   res.json({ id: bot.id, logs: entries.slice(-30), status: st, pollMeta, timestamp: new Date().toISOString() });
 });
 
-app.post('/api/bot/:id/restart', (req, res) => {
+app.post('/api/bot/:id/restart', requireAdmin, (req, res) => {
   const bot = BOTS.find((b) => b.id === req.params.id);
   if (!bot) return res.status(404).json({ ok: false, error: 'Bot not found' });
 
@@ -1705,7 +2119,7 @@ app.post('/api/bot/:id/restart', (req, res) => {
 app.get('/api/task/:number', (req, res) => {
   const num = req.params.number;
   const q = IS_WIN ? '"."' : "'.'";
-  const raw = exec(`gh issue view ${num} -R ${TASK_REPO} --json number,title,body,labels,state,createdAt,updatedAt,comments -q ${q} ${DEVNULL}`);
+  const raw = exec(`${GH_ENV_PREFIX}gh issue view ${num} -R ${TASK_REPO} --json number,title,body,labels,state,createdAt,updatedAt,comments -q ${q} ${DEVNULL}`);
   if (!raw) return res.status(404).json({ error: 'Task not found' });
   try {
     const issue = JSON.parse(raw);

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Team 调度中心 · 登录</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#070b14;--bg2:#0d1424;--card:rgba(15,23,42,.78);--card2:rgba(30,41,59,.72);
+  --border:rgba(148,163,184,.16);--text:#e5eefc;--muted:#94a3b8;--primary:#60a5fa;
+  --primary2:#22d3ee;--danger:#fb7185;--ok:#34d399;--shadow:0 20px 60px rgba(0,0,0,.35);
+}
+body{min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;background:radial-gradient(circle at top left,#172554 0%,transparent 32%),radial-gradient(circle at top right,#0f766e 0%,transparent 28%),linear-gradient(135deg,var(--bg) 0%,var(--bg2) 100%);color:var(--text);display:flex;align-items:center;justify-content:center;padding:24px}
+.shell{width:min(1120px,100%);display:grid;grid-template-columns:1.15fr .85fr;gap:24px;align-items:stretch}
+.hero,.panel{backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid var(--border);background:var(--card);border-radius:28px;box-shadow:var(--shadow)}
+.hero{padding:40px;position:relative;overflow:hidden}
+.hero:before{content:"";position:absolute;inset:auto -60px -60px auto;width:220px;height:220px;background:linear-gradient(135deg,rgba(96,165,250,.28),rgba(34,211,238,.05));filter:blur(8px);border-radius:999px}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.logo{width:56px;height:56px;border-radius:18px;background:linear-gradient(135deg,#fb923c,#f43f5e);display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:0 12px 30px rgba(244,63,94,.22)}
+.brand h1{font-size:28px;letter-spacing:-.03em}
+.sub{color:var(--muted);font-size:15px;line-height:1.75;max-width:44ch}
+.points{margin-top:28px;display:grid;gap:14px}
+.point{padding:14px 16px;border:1px solid rgba(148,163,184,.12);border-radius:18px;background:var(--card2)}
+.point b{display:block;font-size:14px;margin-bottom:6px}
+.point span{color:var(--muted);font-size:13px;line-height:1.6}
+.panel{padding:30px;display:flex;flex-direction:column;justify-content:center}
+.panel h2{font-size:24px;margin-bottom:8px}
+.panel p{color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:22px}
+.form{display:grid;gap:14px}
+.label{font-size:12px;color:var(--muted);margin-bottom:7px;display:block}
+.input{width:100%;border:1px solid rgba(148,163,184,.18);background:rgba(15,23,42,.7);color:var(--text);border-radius:16px;padding:14px 16px;font-size:15px;outline:none;transition:.18s}
+.input:focus{border-color:rgba(96,165,250,.6);box-shadow:0 0 0 4px rgba(96,165,250,.12)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--muted);font-size:13px}
+.btn{border:none;border-radius:16px;padding:14px 18px;font-size:15px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--primary),var(--primary2));color:#06111f;transition:transform .12s ease,filter .12s ease;box-shadow:0 10px 28px rgba(34,211,238,.2)}
+.btn:hover{transform:translateY(-1px);filter:brightness(1.05)}
+.btn:disabled{opacity:.65;cursor:wait;transform:none}
+.msg{min-height:22px;font-size:13px;margin-top:6px}
+.msg.err{color:var(--danger)}
+.msg.ok{color:var(--ok)}
+.footer{margin-top:20px;font-size:12px;color:var(--muted)}
+@media (max-width:900px){.shell{grid-template-columns:1fr}.hero{display:none}.panel{padding:24px;border-radius:24px}}
+</style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="brand">
+        <div class="logo">🦞</div>
+        <div>
+          <h1>AI Team 调度中心</h1>
+          <div class="sub">给你的 AI 团队加一层像样的门禁。先登录，再看总览、监控、统计和每日记忆。</div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><b>统一登录入口</b><span>Dashboard、监控、统计、账号管理全部挂在同一套会话鉴权后面。</span></div>
+        <div class="point"><b>大气一点</b><span>深色玻璃拟态风格，桌面端稳，手机上也不丑。</span></div>
+        <div class="point"><b>账号可管理</b><span>管理员登录后可新增账号、改密码、启停账号、删除非自身账号。</span></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>欢迎回来</h2>
+      <p>输入账号和密码进入控制台。</p>
+      <form class="form" id="loginForm">
+        <div>
+          <label class="label" for="username">账号</label>
+          <input class="input" id="username" name="username" autocomplete="username" placeholder="请输入账号" required />
+        </div>
+        <div>
+          <label class="label" for="password">密码</label>
+          <input class="input" id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required />
+        </div>
+        <div class="row">
+          <span>登录后会建立安全会话</span>
+          <span id="capsule">v2</span>
+        </div>
+        <button class="btn" id="submitBtn" type="submit">进入调度中心</button>
+        <div id="msg" class="msg"></div>
+      </form>
+
+      <form class="form" id="changeForm" style="display:none;margin-top:10px">
+        <div>
+          <label class="label" for="newPassword">首次登录，请先修改默认密码</label>
+          <input class="input" id="newPassword" name="newPassword" type="password" autocomplete="new-password" placeholder="新密码，至少 6 位" />
+        </div>
+        <div>
+          <label class="label" for="newPassword2">确认新密码</label>
+          <input class="input" id="newPassword2" name="newPassword2" type="password" autocomplete="new-password" placeholder="再输一遍" />
+        </div>
+        <button class="btn" id="changeBtn" type="submit">保存新密码并进入</button>
+        <div id="changeMsg" class="msg"></div>
+      </form>
+      <div class="footer">请输入账号和密码进入控制台。</div>
+    </section>
+  </div>
+<script>
+const form=document.getElementById('loginForm');
+const btn=document.getElementById('submitBtn');
+const msg=document.getElementById('msg');
+const changeForm=document.getElementById('changeForm');
+const changeBtn=document.getElementById('changeBtn');
+const changeMsg=document.getElementById('changeMsg');
+let pendingForceChange=false;
+function nextUrl(){return new URLSearchParams(location.search).get('next')||'/';}
+function showChangeForm(){pendingForceChange=true;form.style.display='none';changeForm.style.display='grid';}
+async function check(){
+  try{
+    const r=await fetch('/api/auth/me',{credentials:'same-origin'});
+    if(r.ok){
+      const data=await r.json().catch(()=>({}));
+      if(data?.user?.mustChangePassword)return showChangeForm();
+      location.href=nextUrl();
+    }
+  }catch{}
+}
+check();
+form.addEventListener('submit',async(e)=>{
+  e.preventDefault();
+  msg.textContent='';msg.className='msg';
+  btn.disabled=true;btn.textContent='登录中...';
+  try{
+    const payload={username:form.username.value.trim(),password:form.password.value};
+    const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(payload)});
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok||!data.ok)throw new Error(data.error||'登录失败');
+    if(data.mustChangePassword){
+      msg.textContent='这是默认密码，先改掉再进。';msg.className='msg ok';
+      showChangeForm();
+      return;
+    }
+    msg.textContent='登录成功，正在跳转...';msg.className='msg ok';
+    setTimeout(()=>location.href=nextUrl(),220);
+  }catch(err){
+    msg.textContent=err.message||'登录失败';msg.className='msg err';
+  }finally{
+    btn.disabled=false;btn.textContent='进入调度中心';
+  }
+});
+changeForm.addEventListener('submit',async(e)=>{
+  e.preventDefault();
+  changeMsg.textContent='';changeMsg.className='msg';
+  const p1=changeForm.newPassword.value;const p2=changeForm.newPassword2.value;
+  if(p1.length<6){changeMsg.textContent='密码至少 6 位';changeMsg.className='msg err';return;}
+  if(p1!==p2){changeMsg.textContent='两次输入不一致';changeMsg.className='msg err';return;}
+  changeBtn.disabled=true;changeBtn.textContent='保存中...';
+  try{
+    const r=await fetch('/api/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({password:p1})});
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok||!data.ok)throw new Error(data.error||'修改失败');
+    changeMsg.textContent='密码已更新，正在进入...';changeMsg.className='msg ok';
+    setTimeout(()=>location.href=nextUrl(),220);
+  }catch(err){
+    changeMsg.textContent=err.message||'修改失败';changeMsg.className='msg err';
+  }finally{
+    changeBtn.disabled=false;changeBtn.textContent='保存新密码并进入';
+  }
+});
+</script>
+</body>
+</html>

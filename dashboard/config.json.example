@@ -42,6 +42,14 @@
       "level": "INFO",
       "file": true,
       "console": true
+    },
+    "auth": {
+      "forceChangeDefaultPassword": true,
+      "defaultAdmin": {
+        "username": "admin",
+        "password": "ZhaoGe@2026!",
+        "displayName": "管理员"
+      }
     }
   }
 }
