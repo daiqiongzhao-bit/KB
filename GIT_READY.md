@@ -80,7 +80,7 @@
    cd /Users/fang/Desktop/ai-team
    
    # 添加远程仓库（替换为你的地址）
-   git remote add origin https://github.com/你的用户名/ai-team-dashboard.git
+   git remote add origin https://github.com/daiqiongzhao-bit/KB.git
    
    # 推送到 GitHub
    git push -u origin main

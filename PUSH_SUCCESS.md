@@ -3,7 +3,7 @@
 ## 🎉 推送完成！
 
 **时间**：2026-03-11  
-**仓库**：https://github.com/fangxingyu123/ai-team-dashboard  
+**仓库**：https://github.com/daiqiongzhao-bit/KB  
 **分支**：main  
 **状态**：✅ 成功
 
@@ -83,7 +83,7 @@
 
 ## 🌐 仓库信息
 
-- **仓库地址**：https://github.com/fangxingyu123/ai-team-dashboard
+- **仓库地址**：https://github.com/daiqiongzhao-bit/KB
 - **可见性**：Public（公开）
 - **主分支**：main
 - **最新提交**：47df0eb
@@ -109,12 +109,12 @@
 ### 1. 访问仓库
 ```bash
 # 在浏览器中打开
-open https://github.com/fangxingyu123/ai-team-dashboard
+open https://github.com/daiqiongzhao-bit/KB
 ```
 
 ### 2. 克隆到其他地方使用
 ```bash
-git clone https://github.com/fangxingyu123/ai-team-dashboard.git
+git clone https://github.com/daiqiongzhao-bit/KB.git
 cd ai-team-dashboard/dashboard
 cp config.json.example config.json
 vim config.json  # 填入你的真实配置
@@ -123,7 +123,7 @@ npm install
 ```
 
 ### 3. 更新 GitHub 仓库设置（可选）
-1. 访问：https://github.com/fangxingyu123/ai-team-dashboard/settings
+1. 访问：https://github.com/daiqiongzhao-bit/KB/settings
 2. 编辑 About（添加描述和标签）
 3. 添加 Topics：dashboard, ai, monitoring, nodejs, logging
 4. 设置 Social preview image
@@ -142,10 +142,10 @@ git push
 
 | 文档 | 链接 | 说明 |
 |------|------|------|
-| README | [查看](https://github.com/fangxingyu123/ai-team-dashboard/blob/main/README.md) | 项目说明 |
-| CHANGELOG | [查看](https://github.com/fangxingyu123/ai-team-dashboard/blob/main/CHANGELOG_v1.1.0.md) | 更新日志 |
-| 使用指南 | [查看](https://github.com/fangxingyu123/ai-team-dashboard/blob/main/dashboard/LOGGING_GUIDE.md) | 日志功能使用指南 |
-| 配置说明 | [查看](https://github.com/fangxingyu123/ai-team-dashboard/blob/main/dashboard/LOGGING_CONFIG.md) | 配置说明文档 |
+| README | [查看](https://github.com/daiqiongzhao-bit/KB/blob/main/README.md) | 项目说明 |
+| CHANGELOG | [查看](https://github.com/daiqiongzhao-bit/KB/blob/main/CHANGELOG_v1.1.0.md) | 更新日志 |
+| 使用指南 | [查看](https://github.com/daiqiongzhao-bit/KB/blob/main/dashboard/LOGGING_GUIDE.md) | 日志功能使用指南 |
+| 配置说明 | [查看](https://github.com/daiqiongzhao-bit/KB/blob/main/dashboard/LOGGING_CONFIG.md) | 配置说明文档 |
 
 ## 🎉 成功！
 
